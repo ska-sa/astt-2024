@@ -14,12 +14,27 @@ telescope IDs, or API hosts match the current assembly.
 
 The integrated firmware connects over Wi-Fi, posts readings, polls Point and
 Track commands, reads the AZ encoder, magnetometer, and GPS, and controls the AZ
-motor with E-stop handling. EL motor movement and closed-loop EL feedback remain
-unfinished.
+motor with E-stop handling. A firmware-only EL control draft uses a second
+MPU6050 for feedback and L298 channel B. It still needs wiring, calibration, and
+bench testing before use.
 
 Use encoder feedback for motion control and the magnetometer as an absolute
-heading/calibration reference. Use accelerometer-derived tilt as the future EL
-reference; a gyro alone will drift.
+heading/calibration reference. Elevation uses accelerometer-derived tilt because
+a gyro alone will drift.
+
+### Elevation draft pin map
+
+| Signal | LOLIN32 pin | Note |
+| --- | --- | --- |
+| L298 IN3 | GPIO32 | Elevation direction |
+| L298 IN4 | GPIO33 | Elevation direction |
+| L298 ENB | GPIO18 | Elevation PWM |
+| Future EL encoder | GPIO35 | Reserved input only; not used by firmware |
+| I2C SDA | GPIO21 | Shared sensor bus |
+| I2C SCL | GPIO22 | Shared sensor bus |
+
+Keep the original MPU6050 at address `0x68`. Tie the elevation MPU6050 AD0 pin
+to 3.3 V so it uses address `0x69`.
 
 ## Hardware work groups
 

@@ -24,6 +24,10 @@ int telescopeId = 7;
 const int IN1 = 25;
 const int IN2 = 26;
 const int ENA = 27;
+const int EL_IN3 = 32;
+const int EL_IN4 = 33;
+const int EL_ENB = 18;
+const int EL_ENCODER_PIN = 35;  // reserved for a future input-only encoder
 const int potPin = 34;  // adc1, input only, safe with wifi
 const int encPin = 19;
 const int estopPin = 23;
@@ -45,6 +49,15 @@ const int MIN_PWM = 140;        // below this the motor just hums
 const int MAX_PWM = 255;
 
 
+// ---------- elevation control ----------
+const float EL_MIN = 0.0;
+const float EL_MAX = 90.0;
+const float EL_TOLERANCE = 1.0;
+const float EL_RAMP_RANGE = 30.0;
+const float EL_MPU_SIGN = 1.0;     // reverse if the measured angle moves backwards
+const float EL_ZERO_OFFSET = 0.0;  // set after the horizontal position is measured
+
+
 // ---------- encoder ----------
 const int ENC_SAMPLES = 7;        // odd number, we take the median
 const float ENC_SMOOTHING = 0.5;  // 0 is no smoothing, 1 never updates
@@ -59,6 +72,7 @@ float potTarget = 0.0;
 // ---------- command arbitration ----------
 const unsigned long SOURCE_TIMEOUT = 10000;
 float apiTarget = -1.0;
+float apiElTarget = -1.0;
 unsigned long lastPotTime = 0;
 unsigned long lastApiTime = 0;
 
@@ -85,7 +99,7 @@ unsigned long lastPollTime = 0;
 
 // ---------- readings sent to backend ----------
 float azimuthAngle = 0.0;
-float elevationAngle = 0.0;  // no elevation motor yet
+float elevationAngle = 0.0;
 // site defaults, readGPS overwrites these only when it gets a fix
 float latitude = -33.944481;
 float longitude = 18.478685;
@@ -103,13 +117,18 @@ SFE_MMC5983MA myMag;
 bool magOk = false;
 
 const uint8_t MPU_ADDR = 0x68;
+const uint8_t EL_MPU_ADDR = 0x69;
 bool mpuOk = false;
+bool elMpuOk = false;
 float mpuAccelX = 0.0;
 float mpuAccelY = 0.0;
 float mpuAccelZ = 0.0;
 float mpuGyroX = 0.0;
 float mpuGyroY = 0.0;
 float mpuGyroZ = 0.0;
+float elMpuAccelX = 0.0;
+float elMpuAccelY = 0.0;
+float elMpuAccelZ = 0.0;
 float magneticFieldX = 0.0;
 float magneticFieldY = 0.0;
 float magneticFieldZ = 0.0;
@@ -126,10 +145,11 @@ uint32_t maxX = 0, maxY = 0, maxZ = 0;
 float offX = 0, offY = 0, offZ = 0;
 float scaleX = 1, scaleY = 1, scaleZ = 1;
 
-bool readMpu() {
-  Wire.beginTransmission(MPU_ADDR);
+bool readMpuValues(uint8_t address, float &accelX, float &accelY, float &accelZ,
+                   float &gyroX, float &gyroY, float &gyroZ) {
+  Wire.beginTransmission(address);
   Wire.write(0x3B);
-  if (Wire.endTransmission(false) != 0 || Wire.requestFrom(MPU_ADDR, (uint8_t)14, (uint8_t)true) != 14) {
+  if (Wire.endTransmission(false) != 0 || Wire.requestFrom(address, (uint8_t)14, (uint8_t)true) != 14) {
     return false;
   }
 
@@ -143,22 +163,44 @@ bool readMpu() {
   int16_t gy = (int16_t)((raw[10] << 8) | raw[11]);
   int16_t gz = (int16_t)((raw[12] << 8) | raw[13]);
 
-  mpuAccelX = ax / 16384.0f;
-  mpuAccelY = ay / 16384.0f;
-  mpuAccelZ = az / 16384.0f;
-  mpuGyroX = gx / 131.0f;
-  mpuGyroY = gy / 131.0f;
-  mpuGyroZ = gz / 131.0f;
+  accelX = ax / 16384.0f;
+  accelY = ay / 16384.0f;
+  accelZ = az / 16384.0f;
+  gyroX = gx / 131.0f;
+  gyroY = gy / 131.0f;
+  gyroZ = gz / 131.0f;
   return true;
 }
 
-bool initMpu() {
-  Wire.beginTransmission(MPU_ADDR);
+
+bool readMpu() {
+  return readMpuValues(MPU_ADDR, mpuAccelX, mpuAccelY, mpuAccelZ,
+                       mpuGyroX, mpuGyroY, mpuGyroZ);
+}
+
+
+bool readElevationMpu() {
+  float gyroX, gyroY, gyroZ;
+  if (!readMpuValues(EL_MPU_ADDR, elMpuAccelX, elMpuAccelY, elMpuAccelZ,
+                     gyroX, gyroY, gyroZ)) {
+    return false;
+  }
+
+  float angle = atan2(-elMpuAccelX,
+                      sqrt(elMpuAccelY * elMpuAccelY + elMpuAccelZ * elMpuAccelZ));
+  elevationAngle = constrain(EL_MPU_SIGN * angle * 180.0f / PI + EL_ZERO_OFFSET,
+                             EL_MIN, EL_MAX);
+  return true;
+}
+
+
+bool initMpu(uint8_t address) {
+  Wire.beginTransmission(address);
   Wire.write(0x6B);
   Wire.write(0x00);
   if (Wire.endTransmission() != 0) return false;
   delay(100);
-  return readMpu();
+  return true;
 }
 
 
@@ -344,6 +386,13 @@ void stopMotor() {
 }
 
 
+void stopElevationMotor() {
+  digitalWrite(EL_IN3, LOW);
+  digitalWrite(EL_IN4, LOW);
+  analogWrite(EL_ENB, 0);
+}
+
+
 void driveMotor(int pwm, int direction) {
   if (direction > 0) {
     digitalWrite(IN1, HIGH);
@@ -356,10 +405,30 @@ void driveMotor(int pwm, int direction) {
 }
 
 
+void driveElevationMotor(int pwm, int direction) {
+  if (direction > 0) {
+    digitalWrite(EL_IN3, HIGH);
+    digitalWrite(EL_IN4, LOW);
+  } else {
+    digitalWrite(EL_IN3, LOW);
+    digitalWrite(EL_IN4, HIGH);
+  }
+  analogWrite(EL_ENB, pwm);
+}
+
+
 // bigger error means more power, but never below MIN_PWM or we just hum
 int computePwm(float errorSize) {
   if (errorSize < TOLERANCE) return 0;
   float scale = errorSize / RAMP_RANGE;
+  if (scale > 1.0) scale = 1.0;
+  return MIN_PWM + (int)((MAX_PWM - MIN_PWM) * scale);
+}
+
+
+int computeElevationPwm(float errorSize) {
+  if (errorSize < EL_TOLERANCE) return 0;
+  float scale = errorSize / EL_RAMP_RANGE;
   if (scale > 1.0) scale = 1.0;
   return MIN_PWM + (int)((MAX_PWM - MIN_PWM) * scale);
 }
@@ -560,11 +629,13 @@ void pollCommands() {
 
   if (strcmp(cmdType, "point") == 0) {
     float newAz = doc["point"]["target_az_angle"] | -1.0f;
-    if (newAz >= 0 && newAz <= 360) {
+    float newEl = doc["point"]["target_el_angle"] | -1.0f;
+    if (newAz >= 0 && newAz <= 360 && newEl >= EL_MIN && newEl <= EL_MAX) {
       apiTarget = norm360(newAz);
+      apiElTarget = newEl;
       lastApiTime = millis();
       isTracking = false;
-      Serial.printf("point %.1f\n", apiTarget);
+      Serial.printf("point az %.1f el %.1f\n", apiTarget, apiElTarget);
     }
   } else if (strcmp(cmdType, "track") == 0) {
     track_m1 = doc["track"]["source"]["m_1"] | 0.0f;
@@ -596,10 +667,14 @@ void setup() {
   pinMode(IN1, OUTPUT);
   pinMode(IN2, OUTPUT);
   pinMode(ENA, OUTPUT);
+  pinMode(EL_IN3, OUTPUT);
+  pinMode(EL_IN4, OUTPUT);
+  pinMode(EL_ENB, OUTPUT);
   pinMode(potPin, INPUT);
   pinMode(encPin, INPUT);
   pinMode(estopPin, INPUT_PULLUP);
   stopMotor();
+  stopElevationMotor();
 
 
   pinMode(I2C_SDA, INPUT_PULLUP);
@@ -616,9 +691,13 @@ void setup() {
   if (magOk) myMag.softReset();
   else Serial.println("no magnetometer");
 
-  mpuOk = initMpu();
+  mpuOk = initMpu(MPU_ADDR) && readMpu();
   if (mpuOk) Serial.println("mpu6050 ready");
   else Serial.println("no mpu6050");
+
+  elMpuOk = initMpu(EL_MPU_ADDR) && readElevationMpu();
+  if (elMpuOk) Serial.println("elevation mpu6050 ready");
+  else Serial.println("no elevation mpu6050");
 
 
   connectWifi();
@@ -660,6 +739,7 @@ void loop() {
 
   if (estopState) {
     stopMotor();
+    stopElevationMotor();
     movementStatus = "ESTOP";
     healthStatus = "FAULT";
     Serial.println("estop");
@@ -684,6 +764,14 @@ void loop() {
     mpuOk = true;
   }
 
+  if (!readElevationMpu()) {
+    if (elMpuOk) Serial.println("elevation mpu6050 read failed");
+    elMpuOk = false;
+  } else {
+    if (!elMpuOk) Serial.println("elevation mpu6050 detected");
+    elMpuOk = true;
+  }
+
 
   // did the user turn the knob
   float pot = readPotAngle();
@@ -700,11 +788,13 @@ void loop() {
     float computed = computeAzFromSource();
     if (computed < 0) {
       isTracking = false;
+      apiElTarget = -1.0f;
       Serial.println("track failed, clock or params bad");
     } else {
       apiTarget = computed;
+      apiElTarget = (trackEl >= EL_MIN && trackEl <= EL_MAX) ? trackEl : -1.0f;
       lastApiTime = now;
-      if (trackEl < 0) Serial.printf("source below horizon el %.1f\n", trackEl);
+      if (apiElTarget < 0) Serial.printf("source outside elevation range el %.1f\n", trackEl);
     }
   }
 
@@ -751,7 +841,33 @@ void loop() {
   }
 
 
-  Serial.printf("az %.1f tgt %.1f mag %.1f el %.1f err %.1f pwm %d %s %s\n", current, target, trueHeading, trackEl, error, pwm, source, movementStatus.c_str());  /*
+  bool elApiFresh = (apiElTarget >= EL_MIN && apiElTarget <= EL_MAX) && (now - lastApiTime < SOURCE_TIMEOUT);
+  float elError = 0.0;
+  int elPwm = 0;
+
+  if (!elMpuOk || !elApiFresh) {
+    stopElevationMotor();
+  } else {
+    float signedElError = apiElTarget - elevationAngle;
+    elError = fabs(signedElError);
+    int elDirection = (signedElError >= 0) ? 1 : -1;
+    elPwm = computeElevationPwm(elError);
+
+    bool atLowerLimit = elDirection < 0 && elevationAngle <= EL_MIN;
+    bool atUpperLimit = elDirection > 0 && elevationAngle >= EL_MAX;
+    if (elPwm == 0 || atLowerLimit || atUpperLimit) {
+      stopElevationMotor();
+    } else {
+      driveElevationMotor(elPwm, elDirection);
+      if (movementStatus == "IDLE") {
+        movementStatus = isTracking ? "TRACKING" : "MOVING";
+      }
+    }
+  }
+
+  Serial.printf("az %.1f tgt %.1f mag %.1f el %.1f tgt %.1f err %.1f pwm %d/%d %s %s\n",
+                current, target, trueHeading, elevationAngle, apiElTarget, error,
+                pwm, elPwm, source, movementStatus.c_str());  /*
   }
 */
 
