@@ -1,6 +1,6 @@
 # ASTT-045: Calibrate motor control
 
-**Status:** Awaiting safe bench setup
+**Status:** Ready for safe bench measurements
 **Area:** Hardware and calibration
 
 ## Context
@@ -11,7 +11,8 @@ and have not been measured on the assembled antenna.
 
 ## Goal
 
-Measure and configure safe motor direction, minimum useful PWM, stopping tolerance, and slow-down range for both axes.
+Measure and configure safe motor direction, minimum useful PWM, stopping
+tolerance, and slow-down range for both axes.
 
 ## In scope
 

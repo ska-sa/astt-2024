@@ -130,6 +130,7 @@ connectors before manufacturing. Bench-test the populated PCB before installatio
 True north and GPS location are established. Remaining work must calibrate both
 axes, motor direction, useful PWM, deadband, stopping, motion limits, and E-stop.
 Physical measurements are required before these tickets can be marked complete.
+Follow `hardware/motor-calibration.md` after the E-stop checks pass.
 
 ### Full-system integration: ASTT-052 to ASTT-068
 
