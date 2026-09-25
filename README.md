@@ -18,10 +18,10 @@ Read [AGENTS.md](AGENTS.md) before starting work. Software details are in
 
 ## Progress
 
-**27 of 80 work items complete.** The checklist is the project source of truth.
+**28 of 81 work items complete.** The checklist is the project source of truth.
 Only mark an item complete after its acceptance criteria have been verified.
 
-### 1. Software and backend foundation — 10/11 complete
+### 1. Software and backend foundation — 11/12 complete
 
 - [x] **ASTT-001** Create the database schema for telescopes, readings, commands, and sources. — Slindile
 - [x] **ASTT-002** Implement FastAPI CRUD endpoints. — Slindile
@@ -34,6 +34,7 @@ Only mark an item complete after its acceptance criteria have been verified.
 - [x] **ASTT-009** Show Point and Track information on the commands page. — Sanele
 - [x] **ASTT-010** Stabilize the monitoring graph and live-data filtering. — Sanele
 - [ ] **ASTT-011** Add Keycloak authentication and authorization.
+- [x] **ASTT-081** Improve command confirmation and keep navigation visible. — Sanele
 
 ### 2. Electronics and sensor integration — 8/9 complete
 

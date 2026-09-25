@@ -1,6 +1,12 @@
 <div class="container-fluid px-3">
-  <div *ngIf="commandMessage" class="alert alert-success command-message" role="alert">
-    {{ commandMessage }}
+  <div
+    *ngIf="commandMessage"
+    class="alert alert-primary command-message d-flex align-items-center shadow-sm"
+    role="status"
+    aria-live="polite"
+  >
+    <i class="fa-solid fa-circle-check me-2"></i>
+    <span>{{ commandMessage }}</span>
   </div>
 
   <div class="row">

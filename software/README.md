@@ -46,6 +46,7 @@ The frontend is served on `http://localhost:4200` and the API on
 | ASTT-009 | Done | Command history displays Point angles or a Track source. |
 | ASTT-010 | Done | Plot measured azimuth and elevation with date filtering and selectable sampling. |
 | ASTT-011 | Todo | Add Keycloak only after the physical Point/Track loop is stable. |
+| ASTT-081 | Done | Show a blue command confirmation and keep the navbar visible while scrolling. |
 
 ## Software verification
 

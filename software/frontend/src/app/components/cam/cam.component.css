@@ -4,9 +4,11 @@ h5 {
 
 .command-message {
     position: fixed;
-    top: 20px;
+    top: 76px;
     right: 20px;
+    min-width: 280px;
     z-index: 1056;
+    border-left: 4px solid #0d6efd;
 }
 
 .sensor-readings {
