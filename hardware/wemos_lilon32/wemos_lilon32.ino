@@ -133,6 +133,7 @@ float mpuGyroZ = 0.0;
 float elMpuAccelX = 0.0;
 float elMpuAccelY = 0.0;
 float elMpuAccelZ = 0.0;
+float elevationMpuPitch = 0.0;
 float magneticFieldX = 0.0;
 float magneticFieldY = 0.0;
 float magneticFieldZ = 0.0;
@@ -186,6 +187,15 @@ bool readMpu() {
 }
 
 
+void updateLevelAngles() {
+  float roll = atan2(mpuAccelY, mpuAccelZ);
+  float pitch = atan2(-mpuAccelX,
+                      sqrt(mpuAccelY * mpuAccelY + mpuAccelZ * mpuAccelZ));
+  levelRoll = roll * 180.0 / PI;
+  levelPitch = pitch * 180.0 / PI;
+}
+
+
 bool readElevationMpu() {
   float gyroX, gyroY, gyroZ;
   if (!readMpuValues(EL_MPU_ADDR, elMpuAccelX, elMpuAccelY, elMpuAccelZ,
@@ -193,13 +203,16 @@ bool readElevationMpu() {
     return false;
   }
 
-  float angle = atan2(-elMpuAccelX,
+  float pitch = atan2(-elMpuAccelX,
                       sqrt(elMpuAccelY * elMpuAccelY + elMpuAccelZ * elMpuAccelZ));
-  elevationAngle = constrain(EL_MPU_SIGN * angle * 180.0f / PI + EL_ZERO_OFFSET,
-                             EL_MIN, EL_MAX);
+  elevationMpuPitch = pitch * 180.0 / PI;
+
+  // Relative elevation removes the small tilt left after manual base levelling.
+  float relativeElevation = EL_MPU_SIGN * elevationMpuPitch
+                            - levelPitch + EL_ZERO_OFFSET;
+  elevationAngle = constrain(relativeElevation, EL_MIN, EL_MAX);
   return true;
 }
-
 
 bool initMpu(uint8_t address) {
   Wire.beginTransmission(address);
@@ -407,11 +420,8 @@ float computeTrueHeading() {
   float cz = ((float)rawZ - offZ) / scaleZ;
 
   // The fixed MPU removes the small roll and pitch left after manual levelling.
-  float roll = atan2(mpuAccelY, mpuAccelZ);
-  float pitch = atan2(-mpuAccelX,
-                      sqrt(mpuAccelY * mpuAccelY + mpuAccelZ * mpuAccelZ));
-  levelRoll = roll * 180.0 / PI;
-  levelPitch = pitch * 180.0 / PI;
+  float roll = levelRoll * PI / 180.0;
+  float pitch = levelPitch * PI / 180.0;
   float horizontalX = cx * cos(pitch) + cz * sin(pitch);
   float horizontalY = cx * sin(roll) * sin(pitch)
                       + cy * cos(roll)
@@ -752,6 +762,7 @@ void setup() {
   else Serial.println("no magnetometer");
 
   mpuOk = initMpu(MPU_ADDR) && readMpu();
+  if (mpuOk) updateLevelAngles();
   if (mpuOk) Serial.println("mpu6050 ready");
   else Serial.println("no mpu6050");
 
@@ -818,6 +829,7 @@ void loop() {
   } else {
     if (!mpuOk) Serial.println("mpu6050 detected");
     mpuOk = true;
+    updateLevelAngles();
   }
 
   // The magnetometer supplies true north. The fixed MPU compensates small tilt.
@@ -903,7 +915,7 @@ void loop() {
   float elError = 0.0;
   int elPwm = 0;
 
-  if (!elMpuOk || !elApiFresh) {
+  if (!mpuOk || !elMpuOk || !elApiFresh) {
     stopElevationMotor();
   } else {
     float signedElError = apiElTarget - elevationAngle;
@@ -923,9 +935,9 @@ void loop() {
     }
   }
 
-  Serial.printf("enc %.1f az %.1f tgt %.1f mag %.1f gyroZ %.1f level %.1f/%.1f el %.1f tgt %.1f err %.1f pwm %d/%d ref %s %s %s\n",
+  Serial.printf("enc %.1f az %.1f tgt %.1f mag %.1f gyroZ %.1f base %.1f/%.1f elMpu %.1f el %.1f tgt %.1f err %.1f pwm %d/%d ref %s %s %s\n",
                 current, azimuthAngle, target, trueHeading, mpuGyroZ, levelRoll, levelPitch,
-                elevationAngle, apiElTarget, error, pwm, elPwm,
+                elevationMpuPitch, elevationAngle, apiElTarget, error, pwm, elPwm,
                 azReferenceReady ? "MAG" : "ENC", source, movementStatus.c_str());
 
 

@@ -36,6 +36,20 @@ a gyro alone will drift.
 Keep the original MPU6050 at address `0x68`. Tie the elevation MPU6050 AD0 pin
 to 3.3 V so it uses address `0x69`.
 
+### Elevation reference model
+
+The fixed `0x68` MPU measures the azimuth platform pitch. The moving `0x69` MPU
+measures the elevation assembly pitch. The firmware removes the remaining base
+tilt before controlling elevation:
+
+```text
+relative elevation = moving MPU pitch - base pitch + zero offset
+```
+
+Both MPUs must return valid readings before the elevation motor can move. Mount
+their measurement axes in the same direction, then bench-test the configured
+sign and zero offset before enabling the motor.
+
 ### Azimuth reference model
 
 Use both the encoder and magnetometer, but give them different jobs:
