@@ -21,12 +21,13 @@ int telescopeId = 7;
 
 
 // ---------- pins ----------
-const int AZ_IN1 = 25;
-const int AZ_IN2 = 26;
-const int AZ_ENA = 27;
-const int EL_IN1 = 32;  // L298 IN3
-const int EL_IN2 = 33;  // L298 IN4
-const int EL_ENA = 18;  // L298 ENB
+// IN1-IN4 use consecutive header positions; ENA and ENB are adjacent.
+const int AZ_IN1 = 14;
+const int AZ_IN2 = 27;
+const int EL_IN1 = 26;  // L298 IN3
+const int EL_IN2 = 25;  // L298 IN4
+const int AZ_ENA = 33;
+const int EL_ENA = 32;  // L298 ENB
 const int AZ_ENCODER_PIN = 19;
 const int EL_ENCODER_PIN = 35;  // reserved for a future input-only encoder
 const int ESTOP_PIN = 23;

@@ -22,24 +22,38 @@ Use encoder feedback for motion control and the magnetometer as an absolute
 heading/calibration reference. Elevation uses accelerometer-derived tilt because
 a gyro alone will drift.
 
-### Elevation draft pin map
+### Control pin map
 
 | Signal | LOLIN32 pin | Note |
 | --- | --- | --- |
-| L298 IN3 | GPIO32 | Elevation direction |
-| L298 IN4 | GPIO33 | Elevation direction |
-| L298 ENB | GPIO18 | Elevation PWM |
+| L298 IN1 | GPIO14 | Azimuth direction |
+| L298 IN2 | GPIO27 | Azimuth direction |
+| L298 IN3 | GPIO26 | Elevation direction |
+| L298 IN4 | GPIO25 | Elevation direction |
+| L298 ENA | GPIO33 | Azimuth PWM; add a 10 kOhm pull-down |
+| L298 ENB | GPIO32 | Elevation PWM; add a 10 kOhm pull-down |
 | Future EL encoder | GPIO35 | Reserved input only; not used by firmware |
 | I2C SDA | GPIO21 | Shared sensor bus |
 | I2C SCL | GPIO22 | Shared sensor bus |
+
+The physical header sequence is:
+
+```text
+GPIO: 13    12    14   27   26   25    35    34    33   32
+Use:  free  skip  IN1  IN2  IN3  IN4   skip  skip  ENA  ENB
+```
+
+This keeps all four direction signals consecutive and places both enable signals
+together elsewhere on the same header side. It avoids boot-strapping GPIO12 and
+input-only GPIO35/GPIO34. Keep both enable pull-downs fitted so the motors stay
+disabled while the MCU starts.
 
 Keep the original MPU6050 at address `0x68`. Tie the elevation MPU6050 AD0 pin
 to 3.3 V so it uses address `0x69`.
 
 The firmware names the L298 channel-A pins `AZ_IN1`, `AZ_IN2`, and `AZ_ENA`.
-For consistent axis naming, channel-B pins are `EL_IN1`, `EL_IN2`, and `EL_ENA`;
-these map to the L298 module labels IN3, IN4, and ENB. The old azimuth
-potentiometer input has been removed, so GPIO34 is currently free.
+Channel-B pins are `EL_IN1`, `EL_IN2`, and `EL_ENA`; these map to the L298
+module labels IN3, IN4, and ENB. The old potentiometer input has been removed.
 
 ### Elevation reference model
 
