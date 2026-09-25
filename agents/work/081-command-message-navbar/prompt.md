@@ -17,6 +17,7 @@ Make command confirmation clearer and keep navigation visible while scrolling.
 - Show command success in a blue Bootstrap-style message.
 - Keep the existing automatic dismissal.
 - Keep the navbar at the top while the page scrolls.
+- Refresh the Dockerized frontend when source files change.
 
 ## Out of scope
 
@@ -33,6 +34,7 @@ Make command confirmation clearer and keep navigation visible while scrolling.
 - [x] The message disappears automatically.
 - [x] The navbar remains visible above scrolling page content.
 - [x] The Angular production build passes.
+- [x] Docker Compose detects frontend file changes without rebuilding the image.
 
 ## Likely files
 

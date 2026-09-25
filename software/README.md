@@ -22,7 +22,9 @@ docker compose -f software/docker-compose.yaml up --build
 ```
 
 The frontend is served on `http://localhost:4200` and the API on
-`http://localhost:8000`.
+`http://localhost:8000`. The frontend automatically rebuilds and refreshes when
+files under `software/frontend` change. Rebuild the container when dependencies
+in `package.json` change.
 
 ## Current API flow
 

@@ -14,7 +14,14 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      target: development
     ports:
       - "4200:4200"
+    volumes:
+      - ./frontend:/app
+      - frontend-node-modules:/app/node_modules
     depends_on:
       - astt-software-backend-service
+
+volumes:
+  frontend-node-modules:
