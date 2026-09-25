@@ -36,6 +36,36 @@ a gyro alone will drift.
 Keep the original MPU6050 at address `0x68`. Tie the elevation MPU6050 AD0 pin
 to 3.3 V so it uses address `0x69`.
 
+### Azimuth reference model
+
+Use both the encoder and magnetometer, but give them different jobs:
+
+- The **encoder** is the fast feedback used to move and stop the azimuth motor.
+  Its mechanical angle is also used for the configured cable/hard-stop blocked
+  zone.
+- The **magnetometer** supplies the absolute true-north reference. While the
+  mount is stationary, it slowly corrects the encoder's true-north offset.
+- The azimuth-platform **MPU6050 accelerometer** supplies roll and pitch so a
+  small manual levelling error can be removed from the magnetometer heading.
+- The azimuth-platform **MPU6050 gyro Z rate** tells the firmware when azimuth
+  is moving. The gyro is not integrated into an angle because its bias would drift.
+
+Mount the magnetometer and `0x68` MPU rigidly on the azimuth platform with known
+axis alignment and the MPU Z axis vertical. The `0x69` MPU moves with elevation.
+
+The control calculation is:
+
+```text
+true azimuth = encoder angle + north offset
+encoder target = requested true azimuth - north offset
+motor error = shortest encoder-angle difference to encoder target
+```
+
+Do not drive directly from magnetometer error. Motors, steel, and current can
+disturb the magnetic heading. Also, an encoder only avoids a configured
+blocked range; it does not detect a physical limit switch. Physical limit
+switches and a power-cutting E-stop are still recommended.
+
 ## Hardware work groups
 
 ### Electronics and sensors: ASTT-012 to ASTT-020

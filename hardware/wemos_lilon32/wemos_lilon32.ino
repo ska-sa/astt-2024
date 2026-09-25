@@ -61,7 +61,11 @@ const float EL_ZERO_OFFSET = 0.0;  // set after the horizontal position is measu
 // ---------- encoder ----------
 const int ENC_SAMPLES = 7;        // odd number, we take the median
 const float ENC_SMOOTHING = 0.5;  // 0 is no smoothing, 1 never updates
+const float MAG_CORRECTION_GAIN = 0.02;
+const float GYRO_STATIONARY_DPS = 1.5;
 float encAngle = 0.0;
+float azEncoderOffset = 0.0;
+bool azReferenceReady = false;
 
 
 // ---------- potentiometer ----------
@@ -136,12 +140,13 @@ float magneticFieldZ = 0.0;
 float magneticDeclination = -25.6;
 float headingOffset = 90.0;
 float DEFAULT_HEADING = 0.0;   // used when magnetometer is absent or not yet calibrated
+const float MAG_MIN_CALIBRATION_SPAN = 5000.0;
 float trueHeading = DEFAULT_HEADING;
 
 bool calibrated = false;
 unsigned long calibStartTime = 0;
-uint32_t minX = 4294967295, minY = 4294967295, minZ = 4294967295;
-uint32_t maxX = 0, maxY = 0, maxZ = 0;
+uint32_t minX = 4294967295, minY = 4294967295;
+uint32_t maxX = 0, maxY = 0;
 float offX = 0, offY = 0, offZ = 0;
 float scaleX = 1, scaleY = 1, scaleZ = 1;
 
@@ -232,6 +237,44 @@ float cwDistance(float from, float to) {
 }
 
 
+// shortest signed turn from one angle to another, from -180 to 180
+float signedAngleDifference(float from, float to) {
+  float difference = norm360(to - from);
+  if (difference > 180.0) difference -= 360.0;
+  return difference;
+}
+
+
+float encoderToTrueAzimuth(float encoderAngle) {
+  if (!azReferenceReady) return norm360(encoderAngle);
+  return norm360(encoderAngle + azEncoderOffset);
+}
+
+
+float trueAzimuthToEncoder(float trueAzimuth) {
+  if (!azReferenceReady) return norm360(trueAzimuth);
+  return norm360(trueAzimuth - azEncoderOffset);
+}
+
+
+void updateAzimuthReference(float encoderAngle) {
+  if (!magOk || !calibrated || !mpuOk) return;
+  if (fabs(mpuGyroZ) > GYRO_STATIONARY_DPS) return;
+  if (movementStatus != "IDLE") return;
+
+  if (!azReferenceReady) {
+    azEncoderOffset = norm360(trueHeading - encoderAngle);
+    azReferenceReady = true;
+    Serial.printf("az reference ready offset %.1f\n", azEncoderOffset);
+    return;
+  }
+
+  float encoderHeading = encoderToTrueAzimuth(encoderAngle);
+  float correction = signedAngleDifference(encoderHeading, trueHeading);
+  azEncoderOffset = norm360(azEncoderOffset + MAG_CORRECTION_GAIN * correction);
+}
+
+
 bool inBlockedZone(float angle) {
   float a = norm360(angle);
   if (BLOCK_START <= BLOCK_END) {
@@ -315,14 +358,13 @@ float readEncoderAngle() {
 
 // ================= magnetometer =================
 
-// returns the current true heading in degrees.
-// if the sensor is missing or still calibrating, returns the default
-// instead of stalling the rest of the system.
+// returns a tilt-compensated true heading in degrees.
+// until calibration is valid, keep the previous heading and use encoder-only control.
 float computeTrueHeading() {
   if (!magOk) {
     magOk = myMag.begin();
     if (magOk) myMag.softReset();
-    else return DEFAULT_HEADING;
+    else return trueHeading;
   }
 
   uint32_t rawX, rawY, rawZ;
@@ -336,31 +378,45 @@ float computeTrueHeading() {
   if (!calibrated) {
     if (rawX < minX) minX = rawX;
     if (rawY < minY) minY = rawY;
-    if (rawZ < minZ) minZ = rawZ;
     if (rawX > maxX) maxX = rawX;
     if (rawY > maxY) maxY = rawY;
-    if (rawZ > maxZ) maxZ = rawZ;
 
     if (millis() - calibStartTime > 20000) {
-      offX = (maxX + minX) / 2.0;
-      offY = (maxY + minY) / 2.0;
-      offZ = (maxZ + minZ) / 2.0;
-      scaleX = (maxX - minX) / 2.0;
-      scaleY = (maxY - minY) / 2.0;
-      scaleZ = (maxZ - minZ) / 2.0;
-      calibrated = true;
-      Serial.println("mag calibrated");
+      float spanX = (float)(maxX - minX);
+      float spanY = (float)(maxY - minY);
+      if (spanX >= MAG_MIN_CALIBRATION_SPAN && spanY >= MAG_MIN_CALIBRATION_SPAN) {
+        offX = (maxX + minX) / 2.0;
+        offY = (maxY + minY) / 2.0;
+        offZ = 131072.0;
+        scaleX = spanX / 2.0;
+        scaleY = spanY / 2.0;
+        scaleZ = (scaleX + scaleY) / 2.0;
+        calibrated = true;
+        Serial.println("mag calibrated; true-north reference available");
+      }
     }
-    return DEFAULT_HEADING;  // still calibrating, no reading yet
+    return trueHeading;
   }
 
+  if (!mpuOk) return trueHeading;
 
   float cx = ((float)rawX - offX) / scaleX;
   float cy = ((float)rawY - offY) / scaleY;
-  float heading = norm360(atan2(cx, -cy) * 180.0 / PI + 180 + headingOffset);
+  float cz = ((float)rawZ - offZ) / scaleZ;
+
+  // The fixed MPU removes the small roll and pitch left after manual levelling.
+  float roll = atan2(mpuAccelY, mpuAccelZ);
+  float pitch = atan2(-mpuAccelX,
+                      sqrt(mpuAccelY * mpuAccelY + mpuAccelZ * mpuAccelZ));
+  float horizontalX = cx * cos(pitch) + cz * sin(pitch);
+  float horizontalY = cx * sin(roll) * sin(pitch)
+                      + cy * cos(roll)
+                      - cz * sin(roll) * cos(pitch);
+
+  float heading = norm360(atan2(horizontalX, -horizontalY) * 180.0 / PI
+                          + 180.0 + headingOffset);
   return norm360(heading + magneticDeclination);
 }
-
 
 // ================= potentiometer =================
 
@@ -749,12 +805,8 @@ void loop() {
   healthStatus = "OK";
 
 
-  // where we are
+  // The encoder is the fast mechanical position used by the motor loop.
   float current = readEncoderAngle();
-  azimuthAngle = current;
-
-  // magnetometer heading, used as a cross check reference only
-  trueHeading = computeTrueHeading();
 
   if (!readMpu()) {
     if (mpuOk) Serial.println("mpu6050 read failed");
@@ -763,6 +815,11 @@ void loop() {
     if (!mpuOk) Serial.println("mpu6050 detected");
     mpuOk = true;
   }
+
+  // The magnetometer supplies true north. The fixed MPU compensates small tilt.
+  trueHeading = computeTrueHeading();
+  updateAzimuthReference(current);
+  azimuthAngle = encoderToTrueAzimuth(current);
 
   if (!readElevationMpu()) {
     if (elMpuOk) Serial.println("elevation mpu6050 read failed");
@@ -814,19 +871,16 @@ void loop() {
     source = "pot";
   }
   target = norm360(target);
-  /*
-    // never aim into the blocked zone
-    if (inBlockedZone(target)) {
-    stopMotor();
-    movementStatus = "BLOCKED";
-    Serial.printf("az %.1f tgt %.1f blocked\n", current, target);
-    } else {*/
-  float error = fabs(cwDistance(current, target));
+
+  // Targets are true azimuth. Convert them to the encoder's mechanical frame so
+  // the encoder can control movement and protect the configured blocked zone.
+  float targetEncoder = trueAzimuthToEncoder(target);
+  float error = fabs(cwDistance(current, targetEncoder));
   if (error > 180.0) error = 360.0 - error;
 
 
   int pwm = computePwm(error);
-  int dir = chooseDirection(current, target);
+  int dir = chooseDirection(current, targetEncoder);
 
 
   if (pwm == 0) {
@@ -865,11 +919,10 @@ void loop() {
     }
   }
 
-  Serial.printf("az %.1f tgt %.1f mag %.1f el %.1f tgt %.1f err %.1f pwm %d/%d %s %s\n",
-                current, target, trueHeading, elevationAngle, apiElTarget, error,
-                pwm, elPwm, source, movementStatus.c_str());  /*
-  }
-*/
+  Serial.printf("enc %.1f az %.1f tgt %.1f mag %.1f gyroZ %.1f el %.1f tgt %.1f err %.1f pwm %d/%d ref %s %s %s\n",
+                current, azimuthAngle, target, trueHeading, mpuGyroZ,
+                elevationAngle, apiElTarget, error, pwm, elPwm,
+                azReferenceReady ? "MAG" : "ENC", source, movementStatus.c_str());
 
 
   // network
