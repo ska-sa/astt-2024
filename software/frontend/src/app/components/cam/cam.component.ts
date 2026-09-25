@@ -12,12 +12,42 @@ import { interval, Subscription, switchMap } from 'rxjs';
 import { SourceService } from '../../services/source.service';
 import { Source } from '../../interfaces/source';
 import { CreateSource } from '../../interfaces/create-source';
+import { CanvasJSAngularChartsModule } from '@canvasjs/angular-charts';
+
+interface ChartDataPoint {
+  x: Date;
+  y: number;
+}
+
+interface ChartSeries {
+  type: string;
+  name: string;
+  showInLegend: boolean;
+  dataPoints: ChartDataPoint[];
+}
+
+interface ChartOptions {
+  animationEnabled: boolean;
+  axisX: {
+    title: string;
+    valueFormatString: string;
+  };
+  axisY: {
+    title: string;
+    suffix: string;
+  };
+  toolTip: {
+    shared: boolean;
+  };
+  data: ChartSeries[];
+}
 
 @Component({
   selector: 'app-cam',
   imports: [
     CommonModule,
     FormsModule,
+    CanvasJSAngularChartsModule,
   ],
   templateUrl: './cam.component.html',
   styleUrl: './cam.component.css'
@@ -32,6 +62,20 @@ export class CamComponent {
   isPointingPageActive = false;
   isLoading = false;
   commandMessage = '';
+  graphStartDate = '';
+  graphEndDate = '';
+  sampleIntervalMinutes = 5;
+  graphMessage = '';
+  isGraphLoading = false;
+  historicalReadings: Reading[] = [];
+  chartOptions: ChartOptions = this.createChartOptions([], []);
+  sampleOptions: { label: string, minutes: number }[] = [
+    { label: 'Every reading', minutes: 0 },
+    { label: 'Every minute', minutes: 1 },
+    { label: 'Every 5 minutes', minutes: 5 },
+    { label: 'Every 15 minutes', minutes: 15 },
+    { label: 'Every hour', minutes: 60 }
+  ];
   azimuth_angle = 180; // Initial azimuth value
   elevation_angle = 45; // Initial elevation value
   latitude = 40.730610; // Sample latitude value
@@ -61,9 +105,13 @@ export class CamComponent {
   }
 
   ngOnInit(): void {
+    const today: string = this.getLocalDate(new Date());
+    this.graphStartDate = today;
+    this.graphEndDate = today;
     this.loadReading();
     this.startPollingReadings();
     this.getSources();
+    this.loadGraph();
   }
 
   pollSubscription: Subscription | null = null;
@@ -114,6 +162,144 @@ export class CamComponent {
       }
     });
     return;
+  }
+
+  loadGraph(): void {
+    if (!this.telescopeId) {
+      this.graphMessage = 'Telescope ID is not set.';
+      return;
+    }
+
+    if (!this.graphStartDate || !this.graphEndDate) {
+      this.graphMessage = 'Select a start and end date.';
+      return;
+    }
+
+    if (this.graphStartDate > this.graphEndDate) {
+      this.graphMessage = 'The start date must be before the end date.';
+      return;
+    }
+
+    const start: string = `${this.graphStartDate} 00:00:00`;
+    const end: string = `${this.graphEndDate} 23:59:59`;
+
+    this.isGraphLoading = true;
+    this.graphMessage = '';
+    this.readingService.getReadingsInRange(this.telescopeId, start, end).subscribe({
+      next: (readings: Reading[]) => {
+        this.historicalReadings = this.sampleReadings(readings);
+        this.updateChart(this.historicalReadings);
+        this.graphMessage = this.historicalReadings.length === 0
+          ? 'No readings found for the selected dates.'
+          : '';
+        this.isGraphLoading = false;
+      },
+      error: (error: Error) => {
+        console.error('Error loading graph readings:', error);
+        this.historicalReadings = [];
+        this.updateChart([]);
+        this.graphMessage = 'Could not load readings.';
+        this.isGraphLoading = false;
+      }
+    });
+  }
+
+  private sampleReadings(readings: Reading[]): Reading[] {
+    if (this.sampleIntervalMinutes === 0) {
+      return readings.filter((reading: Reading) => reading.created_at !== null);
+    }
+
+    const intervalMilliseconds: number = this.sampleIntervalMinutes * 60 * 1000;
+    const sampledReadings: Reading[] = [];
+    let lastSampleTime: number | null = null;
+
+    for (const reading of readings) {
+      const readingTime: number | null = this.getReadingTime(reading);
+      if (readingTime === null) {
+        continue;
+      }
+
+      if (lastSampleTime === null || readingTime - lastSampleTime >= intervalMilliseconds) {
+        sampledReadings.push(reading);
+        lastSampleTime = readingTime;
+      }
+    }
+
+    const lastReading: Reading | undefined = readings.at(-1);
+    const lastSample: Reading | undefined = sampledReadings.at(-1);
+    if (lastReading?.created_at && lastReading.id !== lastSample?.id) {
+      sampledReadings.push(lastReading);
+    }
+
+    return sampledReadings;
+  }
+
+  private updateChart(readings: Reading[]): void {
+    const azimuthPoints: ChartDataPoint[] = [];
+    const elevationPoints: ChartDataPoint[] = [];
+
+    for (const reading of readings) {
+      const readingTime: number | null = this.getReadingTime(reading);
+      if (readingTime === null) {
+        continue;
+      }
+
+      const timestamp: Date = new Date(readingTime);
+      azimuthPoints.push({ x: timestamp, y: reading.azimuth_angle });
+      elevationPoints.push({ x: timestamp, y: reading.elevation_angle });
+    }
+
+    this.chartOptions = this.createChartOptions(azimuthPoints, elevationPoints);
+  }
+
+  private createChartOptions(
+    azimuthPoints: ChartDataPoint[],
+    elevationPoints: ChartDataPoint[]
+  ): ChartOptions {
+    return {
+      animationEnabled: true,
+      axisX: {
+        title: 'Time',
+        valueFormatString: 'DD MMM HH:mm'
+      },
+      axisY: {
+        title: 'Angle',
+        suffix: '°'
+      },
+      toolTip: {
+        shared: true
+      },
+      data: [
+        {
+          type: 'line',
+          name: 'Azimuth',
+          showInLegend: true,
+          dataPoints: azimuthPoints
+        },
+        {
+          type: 'line',
+          name: 'Elevation',
+          showInLegend: true,
+          dataPoints: elevationPoints
+        }
+      ]
+    };
+  }
+
+  private getReadingTime(reading: Reading): number | null {
+    if (!reading.created_at) {
+      return null;
+    }
+
+    const timestamp: number = new Date(reading.created_at.replace(' ', 'T')).getTime();
+    return Number.isNaN(timestamp) ? null : timestamp;
+  }
+
+  private getLocalDate(date: Date): string {
+    const year: number = date.getFullYear();
+    const month: string = String(date.getMonth() + 1).padStart(2, '0');
+    const day: string = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   }
 
   startDrag(event: MouseEvent): void {

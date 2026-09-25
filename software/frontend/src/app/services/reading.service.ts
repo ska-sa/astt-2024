@@ -1,4 +1,4 @@
-import { HttpClient, HttpHeaders } from '@angular/common/http';
+import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 import { Reading } from '../interfaces/reading';
@@ -22,6 +22,17 @@ export class ReadingService {
 
   getLatestReading(telescope_id: number): Observable<Reading> {
     return this.httpClient.get<Reading>(`${this.url}${telescope_id}/latest`, { headers: this.httpHeaders });
+  }
+
+  getReadingsInRange(telescopeId: number, start: string, end: string): Observable<Reading[]> {
+    const params: HttpParams = new HttpParams()
+      .set('start', start)
+      .set('end', end);
+
+    return this.httpClient.get<Reading[]>(`${this.url}${telescopeId}/range`, {
+      headers: this.httpHeaders,
+      params
+    });
   }
 
   postReading(createReading: CreateReading) {

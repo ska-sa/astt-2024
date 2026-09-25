@@ -58,6 +58,60 @@
     <div class="col-12 col-md-8 offset-md-2 mt-2">
       <div class="card">
         <div class="card-body">
+          <h5 class="mb-3">Azimuth and Elevation History</h5>
+
+          <div class="row g-2 align-items-end mb-3">
+            <div class="col-12 col-sm-4">
+              <label class="form-label" for="graph-start-date">Start date</label>
+              <input
+                id="graph-start-date"
+                class="form-control"
+                type="date"
+                [(ngModel)]="graphStartDate"
+              >
+            </div>
+            <div class="col-12 col-sm-4">
+              <label class="form-label" for="graph-end-date">End date</label>
+              <input
+                id="graph-end-date"
+                class="form-control"
+                type="date"
+                [(ngModel)]="graphEndDate"
+              >
+            </div>
+            <div class="col-12 col-sm-4">
+              <label class="form-label" for="graph-sampling">Sampling</label>
+              <select
+                id="graph-sampling"
+                class="form-select"
+                [(ngModel)]="sampleIntervalMinutes"
+              >
+                <option *ngFor="let option of sampleOptions" [ngValue]="option.minutes">
+                  {{ option.label }}
+                </option>
+              </select>
+            </div>
+          </div>
+
+          <button class="btn btn-primary mb-3" (click)="loadGraph()" [disabled]="isGraphLoading">
+            {{ isGraphLoading ? 'Loading...' : 'Load graph' }}
+          </button>
+
+          <div *ngIf="graphMessage" class="text-muted mb-2">{{ graphMessage }}</div>
+          <canvasjs-chart
+            *ngIf="historicalReadings.length > 0"
+            [options]="chartOptions"
+            [styles]="{ width: '100%', height: '360px' }"
+          ></canvasjs-chart>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="col-12 col-md-8 offset-md-2 mt-2">
+      <div class="card">
+        <div class="card-body">
           <div class="d-flex justify-content-between align-items-center mb-3">
             <h5>Control Panel</h5>
             <div class="btn-group">

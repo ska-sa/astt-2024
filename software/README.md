@@ -44,7 +44,7 @@ The frontend is served on `http://localhost:4200` and the API on
 | ASTT-007 | Done | The CAM page polls and displays the latest sensor reading. |
 | ASTT-008 | Done | Users can create, update, select, and delete tracking sources. |
 | ASTT-009 | Done | Command history displays Point angles or a Track source. |
-| ASTT-010 | Todo | Add a stable historical graph with target/actual values, date filtering, and sensible sampling. |
+| ASTT-010 | Done | Plot measured azimuth and elevation with date filtering and selectable sampling. |
 | ASTT-011 | Todo | Add Keycloak only after the physical Point/Track loop is stable. |
 
 ## Software verification
