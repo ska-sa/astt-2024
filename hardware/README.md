@@ -36,6 +36,11 @@ a gyro alone will drift.
 Keep the original MPU6050 at address `0x68`. Tie the elevation MPU6050 AD0 pin
 to 3.3 V so it uses address `0x69`.
 
+The firmware names the L298 channel-A pins `AZ_IN1`, `AZ_IN2`, and `AZ_ENA`.
+For consistent axis naming, channel-B pins are `EL_IN1`, `EL_IN2`, and `EL_ENA`;
+these map to the L298 module labels IN3, IN4, and ENB. The old azimuth
+potentiometer input has been removed, so GPIO34 is currently free.
+
 ### Elevation reference model
 
 The fixed `0x68` MPU measures the azimuth platform pitch. The moving `0x69` MPU
