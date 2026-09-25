@@ -99,6 +99,11 @@ disturb the magnetic heading. Also, an encoder only avoids a configured
 blocked range; it does not detect a physical limit switch. Physical limit
 switches and a power-cutting E-stop are still recommended.
 
+GPIO23 is an active-low E-stop status input. While it is LOW, firmware stops both
+channels and clears the current Point/Track targets. Releasing it does not resume
+motion until a fresh command arrives. This status input is not a replacement for
+a normally closed E-stop that directly removes motor power.
+
 ## Hardware work groups
 
 ### Electronics and sensors: ASTT-012 to ASTT-020

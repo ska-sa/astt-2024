@@ -83,8 +83,7 @@ float track_A = 0, track_phi = 0, track_D = 0;
 
 
 // ---------- estop ----------
-bool estopState = false;
-bool lastButton = HIGH;
+bool estopWasActive = false;
 
 
 // ---------- network timing ----------
@@ -774,24 +773,30 @@ void loop() {
   readGPS();
 
 
-  // estop
-  bool button = digitalRead(ESTOP_PIN);
-  if (button == LOW && lastButton == HIGH) {
-    estopState = !estopState;
-    delay(10);
-  }
-  lastButton = button;
-
-
-  if (estopState) {
+  bool estopActive = digitalRead(ESTOP_PIN) == LOW;
+  if (estopActive) {
     stopAzimuthMotor();
     stopElevationMotor();
     movementStatus = "ESTOP";
     healthStatus = "FAULT";
-    Serial.println("estop");
+
+    if (!estopWasActive) {
+      apiAzTarget = -1.0f;
+      apiElTarget = -1.0f;
+      lastApiTime = 0;
+      isTracking = false;
+      Serial.println("estop active; targets cleared");
+    }
+
+    estopWasActive = true;
     delay(10);
     return;
   }
+
+  if (estopWasActive) {
+    Serial.println("estop released; waiting for a new command");
+  }
+  estopWasActive = false;
   healthStatus = "OK";
 
 
