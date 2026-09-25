@@ -21,45 +21,56 @@ int telescopeId = 7;
 
 
 // ---------- pins ----------
-const int IN1 = 25;
-const int IN2 = 26;
-const int ENA = 27;
-const int potPin = 34;  // adc1, input only, safe with wifi
-const int encPin = 19;
-const int estopPin = 23;
+// IN1-IN4 use consecutive header positions; ENA and ENB are adjacent.
+const int AZ_IN1 = 14;
+const int AZ_IN2 = 27;
+const int EL_IN1 = 26;  // L298 IN3
+const int EL_IN2 = 25;  // L298 IN4
+const int AZ_ENA = 33;
+const int EL_ENA = 32;  // L298 ENB
+const int AZ_ENCODER_PIN = 19;
+const int EL_ENCODER_PIN = 35;  // reserved for a future input-only encoder
+const int ESTOP_PIN = 23;
 
 
-// ---------- azimuth range ----------
-// full circle is allowed except the blocked zone, which is where cables
-// or hardstops live. the blocked zone may wrap through 0.
+// ---------- azimuth control ----------
+// Full circle is allowed except the blocked zone, which is where cables
+// or hardstops live. The blocked zone may wrap through 0.
 const float AZ_MIN = 0.0;
 const float AZ_MAX = 360.0;
-const float BLOCK_START = 360.0;  // start of blocked zone, going cw
-const float BLOCK_END = 139.00;   // end of blocked zone, going cw
+const float AZ_BLOCK_START = 360.0;  // start of blocked zone, going clockwise
+const float AZ_BLOCK_END = 139.0;    // end of blocked zone, going clockwise
+const float AZ_TOLERANCE = 1.0;
+const float AZ_RAMP_RANGE = 60.0;
+const int AZ_MIN_PWM = 140;
+const int AZ_MAX_PWM = 255;
 
 
-// ---------- motor control ----------
-const float TOLERANCE = 1.0;    // deg, closer than this counts as arrived
-const float RAMP_RANGE = 60.0;  // deg of error that gives full power
-const int MIN_PWM = 140;        // below this the motor just hums
-const int MAX_PWM = 255;
+// ---------- elevation control ----------
+const float EL_MIN = 0.0;
+const float EL_MAX = 90.0;
+const float EL_TOLERANCE = 1.0;
+const float EL_RAMP_RANGE = 30.0;
+const int EL_MIN_PWM = 140;
+const int EL_MAX_PWM = 255;
+const float EL_MPU_SIGN = 1.0;     // reverse if the measured angle moves backwards
+const float EL_ZERO_OFFSET = 0.0;  // set after the horizontal position is measured
 
 
 // ---------- encoder ----------
-const int ENC_SAMPLES = 7;        // odd number, we take the median
-const float ENC_SMOOTHING = 0.5;  // 0 is no smoothing, 1 never updates
-float encAngle = 0.0;
+const int AZ_ENCODER_SAMPLES = 7;        // odd number, we take the median
+const float AZ_ENCODER_SMOOTHING = 0.5;  // 0 is no smoothing, 1 never updates
+const float MAG_CORRECTION_GAIN = 0.02;
+const float GYRO_STATIONARY_DPS = 1.5;
+float azEncoderAngle = 0.0;
+float azEncoderOffset = 0.0;
+bool azReferenceReady = false;
 
 
-// ---------- potentiometer ----------
-const float POT_THRESHOLD = 4.0;  // deg of movement before we call it a change
-float potTarget = 0.0;
-
-
-// ---------- command arbitration ----------
+// ---------- command targets ----------
 const unsigned long SOURCE_TIMEOUT = 10000;
-float apiTarget = -1.0;
-unsigned long lastPotTime = 0;
+float apiAzTarget = -1.0;
+float apiElTarget = -1.0;
 unsigned long lastApiTime = 0;
 
 
@@ -72,8 +83,7 @@ float track_A = 0, track_phi = 0, track_D = 0;
 
 
 // ---------- estop ----------
-bool estopState = false;
-bool lastButton = HIGH;
+bool estopWasActive = false;
 
 
 // ---------- network timing ----------
@@ -85,7 +95,7 @@ unsigned long lastPollTime = 0;
 
 // ---------- readings sent to backend ----------
 float azimuthAngle = 0.0;
-float elevationAngle = 0.0;  // no elevation motor yet
+float elevationAngle = 0.0;
 // site defaults, readGPS overwrites these only when it gets a fix
 float latitude = -33.944481;
 float longitude = 18.478685;
@@ -103,13 +113,19 @@ SFE_MMC5983MA myMag;
 bool magOk = false;
 
 const uint8_t MPU_ADDR = 0x68;
+const uint8_t EL_MPU_ADDR = 0x69;
 bool mpuOk = false;
+bool elMpuOk = false;
 float mpuAccelX = 0.0;
 float mpuAccelY = 0.0;
 float mpuAccelZ = 0.0;
 float mpuGyroX = 0.0;
 float mpuGyroY = 0.0;
 float mpuGyroZ = 0.0;
+float elMpuAccelX = 0.0;
+float elMpuAccelY = 0.0;
+float elMpuAccelZ = 0.0;
+float elevationMpuPitch = 0.0;
 float magneticFieldX = 0.0;
 float magneticFieldY = 0.0;
 float magneticFieldZ = 0.0;
@@ -117,19 +133,23 @@ float magneticFieldZ = 0.0;
 float magneticDeclination = -25.6;
 float headingOffset = 90.0;
 float DEFAULT_HEADING = 0.0;   // used when magnetometer is absent or not yet calibrated
+const float MAG_MIN_CALIBRATION_SPAN = 5000.0;
 float trueHeading = DEFAULT_HEADING;
+float levelRoll = 0.0;
+float levelPitch = 0.0;
 
 bool calibrated = false;
 unsigned long calibStartTime = 0;
-uint32_t minX = 4294967295, minY = 4294967295, minZ = 4294967295;
-uint32_t maxX = 0, maxY = 0, maxZ = 0;
+uint32_t minX = 4294967295, minY = 4294967295;
+uint32_t maxX = 0, maxY = 0;
 float offX = 0, offY = 0, offZ = 0;
 float scaleX = 1, scaleY = 1, scaleZ = 1;
 
-bool readMpu() {
-  Wire.beginTransmission(MPU_ADDR);
+bool readMpuValues(uint8_t address, float &accelX, float &accelY, float &accelZ,
+                   float &gyroX, float &gyroY, float &gyroZ) {
+  Wire.beginTransmission(address);
   Wire.write(0x3B);
-  if (Wire.endTransmission(false) != 0 || Wire.requestFrom(MPU_ADDR, (uint8_t)14, (uint8_t)true) != 14) {
+  if (Wire.endTransmission(false) != 0 || Wire.requestFrom(address, (uint8_t)14, (uint8_t)true) != 14) {
     return false;
   }
 
@@ -143,22 +163,56 @@ bool readMpu() {
   int16_t gy = (int16_t)((raw[10] << 8) | raw[11]);
   int16_t gz = (int16_t)((raw[12] << 8) | raw[13]);
 
-  mpuAccelX = ax / 16384.0f;
-  mpuAccelY = ay / 16384.0f;
-  mpuAccelZ = az / 16384.0f;
-  mpuGyroX = gx / 131.0f;
-  mpuGyroY = gy / 131.0f;
-  mpuGyroZ = gz / 131.0f;
+  accelX = ax / 16384.0f;
+  accelY = ay / 16384.0f;
+  accelZ = az / 16384.0f;
+  gyroX = gx / 131.0f;
+  gyroY = gy / 131.0f;
+  gyroZ = gz / 131.0f;
   return true;
 }
 
-bool initMpu() {
-  Wire.beginTransmission(MPU_ADDR);
+
+bool readMpu() {
+  return readMpuValues(MPU_ADDR, mpuAccelX, mpuAccelY, mpuAccelZ,
+                       mpuGyroX, mpuGyroY, mpuGyroZ);
+}
+
+
+void updateLevelAngles() {
+  float roll = atan2(mpuAccelY, mpuAccelZ);
+  float pitch = atan2(-mpuAccelX,
+                      sqrt(mpuAccelY * mpuAccelY + mpuAccelZ * mpuAccelZ));
+  levelRoll = roll * 180.0 / PI;
+  levelPitch = pitch * 180.0 / PI;
+}
+
+
+bool readElevationMpu() {
+  float gyroX, gyroY, gyroZ;
+  if (!readMpuValues(EL_MPU_ADDR, elMpuAccelX, elMpuAccelY, elMpuAccelZ,
+                     gyroX, gyroY, gyroZ)) {
+    return false;
+  }
+
+  float pitch = atan2(-elMpuAccelX,
+                      sqrt(elMpuAccelY * elMpuAccelY + elMpuAccelZ * elMpuAccelZ));
+  elevationMpuPitch = pitch * 180.0 / PI;
+
+  // Relative elevation removes the small tilt left after manual base levelling.
+  float relativeElevation = EL_MPU_SIGN * elevationMpuPitch
+                            - levelPitch + EL_ZERO_OFFSET;
+  elevationAngle = constrain(relativeElevation, EL_MIN, EL_MAX);
+  return true;
+}
+
+bool initMpu(uint8_t address) {
+  Wire.beginTransmission(address);
   Wire.write(0x6B);
   Wire.write(0x00);
   if (Wire.endTransmission() != 0) return false;
   delay(100);
-  return readMpu();
+  return true;
 }
 
 
@@ -190,13 +244,51 @@ float cwDistance(float from, float to) {
 }
 
 
+// shortest signed turn from one angle to another, from -180 to 180
+float signedAngleDifference(float from, float to) {
+  float difference = norm360(to - from);
+  if (difference > 180.0) difference -= 360.0;
+  return difference;
+}
+
+
+float encoderToTrueAzimuth(float encoderAngle) {
+  if (!azReferenceReady) return norm360(encoderAngle);
+  return norm360(encoderAngle + azEncoderOffset);
+}
+
+
+float trueAzimuthToEncoder(float trueAzimuth) {
+  if (!azReferenceReady) return norm360(trueAzimuth);
+  return norm360(trueAzimuth - azEncoderOffset);
+}
+
+
+void updateAzimuthReference(float encoderAngle) {
+  if (!magOk || !calibrated || !mpuOk) return;
+  if (fabs(mpuGyroZ) > GYRO_STATIONARY_DPS) return;
+  if (movementStatus != "IDLE") return;
+
+  if (!azReferenceReady) {
+    azEncoderOffset = norm360(trueHeading - encoderAngle);
+    azReferenceReady = true;
+    Serial.printf("az reference ready offset %.1f\n", azEncoderOffset);
+    return;
+  }
+
+  float encoderHeading = encoderToTrueAzimuth(encoderAngle);
+  float correction = signedAngleDifference(encoderHeading, trueHeading);
+  azEncoderOffset = norm360(azEncoderOffset + MAG_CORRECTION_GAIN * correction);
+}
+
+
 bool inBlockedZone(float angle) {
   float a = norm360(angle);
-  if (BLOCK_START <= BLOCK_END) {
-    return a >= BLOCK_START && a <= BLOCK_END;
+  if (AZ_BLOCK_START <= AZ_BLOCK_END) {
+    return a >= AZ_BLOCK_START && a <= AZ_BLOCK_END;
   }
   // zone wraps through 0
-  return a >= BLOCK_START || a <= BLOCK_END;
+  return a >= AZ_BLOCK_START || a <= AZ_BLOCK_END;
 }
 
 
@@ -235,21 +327,21 @@ int chooseDirection(float current, float target) {
 
 // read the pwm duty cycle and turn it into an angle.
 // takes the median of several samples so one bad pulse cannot move the value.
-float readEncoderAngle() {
-  float samples[ENC_SAMPLES];
+float readAzEncoderAngle() {
+  float samples[AZ_ENCODER_SAMPLES];
   int valid = 0;
 
 
-  for (int i = 0; i < ENC_SAMPLES; i++) {
-    unsigned long hi = pulseIn(encPin, HIGH, 25000);
-    unsigned long lo = pulseIn(encPin, LOW, 25000);
+  for (int i = 0; i < AZ_ENCODER_SAMPLES; i++) {
+    unsigned long hi = pulseIn(AZ_ENCODER_PIN, HIGH, 25000);
+    unsigned long lo = pulseIn(AZ_ENCODER_PIN, LOW, 25000);
     if (hi + lo == 0) continue;
     samples[valid] = ((float)hi / (float)(hi + lo)) * 360.0;
     valid++;
   }
 
 
-  if (valid == 0) return encAngle;
+  if (valid == 0) return azEncoderAngle;
 
 
   // sort so we can pick the middle value
@@ -266,21 +358,20 @@ float readEncoderAngle() {
 
 
   // light smoothing, keeps motion continuous without staircasing
-  encAngle = (ENC_SMOOTHING * encAngle) + ((1.0 - ENC_SMOOTHING) * median);
-  return norm360(encAngle);
+  azEncoderAngle = (AZ_ENCODER_SMOOTHING * azEncoderAngle) + ((1.0 - AZ_ENCODER_SMOOTHING) * median);
+  return norm360(azEncoderAngle);
 }
 
 
 // ================= magnetometer =================
 
-// returns the current true heading in degrees.
-// if the sensor is missing or still calibrating, returns the default
-// instead of stalling the rest of the system.
+// returns a tilt-compensated true heading in degrees.
+// until calibration is valid, keep the previous heading and use encoder-only control.
 float computeTrueHeading() {
   if (!magOk) {
     magOk = myMag.begin();
     if (magOk) myMag.softReset();
-    else return DEFAULT_HEADING;
+    else return trueHeading;
   }
 
   uint32_t rawX, rawY, rawZ;
@@ -294,74 +385,101 @@ float computeTrueHeading() {
   if (!calibrated) {
     if (rawX < minX) minX = rawX;
     if (rawY < minY) minY = rawY;
-    if (rawZ < minZ) minZ = rawZ;
     if (rawX > maxX) maxX = rawX;
     if (rawY > maxY) maxY = rawY;
-    if (rawZ > maxZ) maxZ = rawZ;
 
     if (millis() - calibStartTime > 20000) {
-      offX = (maxX + minX) / 2.0;
-      offY = (maxY + minY) / 2.0;
-      offZ = (maxZ + minZ) / 2.0;
-      scaleX = (maxX - minX) / 2.0;
-      scaleY = (maxY - minY) / 2.0;
-      scaleZ = (maxZ - minZ) / 2.0;
-      calibrated = true;
-      Serial.println("mag calibrated");
+      float spanX = (float)(maxX - minX);
+      float spanY = (float)(maxY - minY);
+      if (spanX >= MAG_MIN_CALIBRATION_SPAN && spanY >= MAG_MIN_CALIBRATION_SPAN) {
+        offX = (maxX + minX) / 2.0;
+        offY = (maxY + minY) / 2.0;
+        offZ = 131072.0;
+        scaleX = spanX / 2.0;
+        scaleY = spanY / 2.0;
+        scaleZ = (scaleX + scaleY) / 2.0;
+        calibrated = true;
+        Serial.println("mag calibrated; true-north reference available");
+      }
     }
-    return DEFAULT_HEADING;  // still calibrating, no reading yet
+    return trueHeading;
   }
 
+  if (!mpuOk) return trueHeading;
 
   float cx = ((float)rawX - offX) / scaleX;
   float cy = ((float)rawY - offY) / scaleY;
-  float heading = norm360(atan2(cx, -cy) * 180.0 / PI + 180 + headingOffset);
+  float cz = ((float)rawZ - offZ) / scaleZ;
+
+  // The fixed MPU removes the small roll and pitch left after manual levelling.
+  float roll = levelRoll * PI / 180.0;
+  float pitch = levelPitch * PI / 180.0;
+  float horizontalX = cx * cos(pitch) + cz * sin(pitch);
+  float horizontalY = cx * sin(roll) * sin(pitch)
+                      + cy * cos(roll)
+                      - cz * sin(roll) * cos(pitch);
+
+  float heading = norm360(atan2(horizontalX, -horizontalY) * 180.0 / PI
+                          + 180.0 + headingOffset);
   return norm360(heading + magneticDeclination);
 }
-
-
-// ================= potentiometer =================
-
-
-// esp32 adc is 12 bit, so the raw range is 0 to 4095
-float readPotAngle() {
-  long sum = 0;
-  for (int i = 0; i < 8; i++) sum += analogRead(potPin);
-  float raw = sum / 8.0;
-  return (raw / 4095.0) * 360.0;
-}
-
-
 
 
 // ================= motor =================
 
 
-void stopMotor() {
-  digitalWrite(IN1, LOW);
-  digitalWrite(IN2, LOW);
-  analogWrite(ENA, 0);
+void stopAzimuthMotor() {
+  digitalWrite(AZ_IN1, LOW);
+  digitalWrite(AZ_IN2, LOW);
+  analogWrite(AZ_ENA, 0);
 }
 
 
-void driveMotor(int pwm, int direction) {
+void stopElevationMotor() {
+  digitalWrite(EL_IN1, LOW);
+  digitalWrite(EL_IN2, LOW);
+  analogWrite(EL_ENA, 0);
+}
+
+
+void driveAzimuthMotor(int pwm, int direction) {
   if (direction > 0) {
-    digitalWrite(IN1, HIGH);
-    digitalWrite(IN2, LOW);
+    digitalWrite(AZ_IN1, HIGH);
+    digitalWrite(AZ_IN2, LOW);
   } else {
-    digitalWrite(IN1, LOW);
-    digitalWrite(IN2, HIGH);
+    digitalWrite(AZ_IN1, LOW);
+    digitalWrite(AZ_IN2, HIGH);
   }
-  analogWrite(ENA, pwm);
+  analogWrite(AZ_ENA, pwm);
 }
 
 
-// bigger error means more power, but never below MIN_PWM or we just hum
-int computePwm(float errorSize) {
-  if (errorSize < TOLERANCE) return 0;
-  float scale = errorSize / RAMP_RANGE;
+void driveElevationMotor(int pwm, int direction) {
+  if (direction > 0) {
+    digitalWrite(EL_IN1, HIGH);
+    digitalWrite(EL_IN2, LOW);
+  } else {
+    digitalWrite(EL_IN1, LOW);
+    digitalWrite(EL_IN2, HIGH);
+  }
+  analogWrite(EL_ENA, pwm);
+}
+
+
+// bigger error means more power, but never below AZ_MIN_PWM or we just hum
+int computeAzimuthPwm(float errorSize) {
+  if (errorSize < AZ_TOLERANCE) return 0;
+  float scale = errorSize / AZ_RAMP_RANGE;
   if (scale > 1.0) scale = 1.0;
-  return MIN_PWM + (int)((MAX_PWM - MIN_PWM) * scale);
+  return AZ_MIN_PWM + (int)((AZ_MAX_PWM - AZ_MIN_PWM) * scale);
+}
+
+
+int computeElevationPwm(float errorSize) {
+  if (errorSize < EL_TOLERANCE) return 0;
+  float scale = errorSize / EL_RAMP_RANGE;
+  if (scale > 1.0) scale = 1.0;
+  return EL_MIN_PWM + (int)((EL_MAX_PWM - EL_MIN_PWM) * scale);
 }
 
 
@@ -560,11 +678,13 @@ void pollCommands() {
 
   if (strcmp(cmdType, "point") == 0) {
     float newAz = doc["point"]["target_az_angle"] | -1.0f;
-    if (newAz >= 0 && newAz <= 360) {
-      apiTarget = norm360(newAz);
+    float newEl = doc["point"]["target_el_angle"] | -1.0f;
+    if (newAz >= AZ_MIN && newAz <= AZ_MAX && newEl >= EL_MIN && newEl <= EL_MAX) {
+      apiAzTarget = norm360(newAz);
+      apiElTarget = newEl;
       lastApiTime = millis();
       isTracking = false;
-      Serial.printf("point %.1f\n", apiTarget);
+      Serial.printf("point az %.1f el %.1f\n", apiAzTarget, apiElTarget);
     }
   } else if (strcmp(cmdType, "track") == 0) {
     track_m1 = doc["track"]["source"]["m_1"] | 0.0f;
@@ -593,13 +713,16 @@ void pollCommands() {
 
 void setup() {
   Serial.begin(115200);
-  pinMode(IN1, OUTPUT);
-  pinMode(IN2, OUTPUT);
-  pinMode(ENA, OUTPUT);
-  pinMode(potPin, INPUT);
-  pinMode(encPin, INPUT);
-  pinMode(estopPin, INPUT_PULLUP);
-  stopMotor();
+  pinMode(AZ_IN1, OUTPUT);
+  pinMode(AZ_IN2, OUTPUT);
+  pinMode(AZ_ENA, OUTPUT);
+  pinMode(EL_IN1, OUTPUT);
+  pinMode(EL_IN2, OUTPUT);
+  pinMode(EL_ENA, OUTPUT);
+  pinMode(AZ_ENCODER_PIN, INPUT);
+  pinMode(ESTOP_PIN, INPUT_PULLUP);
+  stopAzimuthMotor();
+  stopElevationMotor();
 
 
   pinMode(I2C_SDA, INPUT_PULLUP);
@@ -616,20 +739,21 @@ void setup() {
   if (magOk) myMag.softReset();
   else Serial.println("no magnetometer");
 
-  mpuOk = initMpu();
+  mpuOk = initMpu(MPU_ADDR) && readMpu();
+  if (mpuOk) updateLevelAngles();
   if (mpuOk) Serial.println("mpu6050 ready");
   else Serial.println("no mpu6050");
+
+  elMpuOk = initMpu(EL_MPU_ADDR) && readElevationMpu();
+  if (elMpuOk) Serial.println("elevation mpu6050 ready");
+  else Serial.println("no elevation mpu6050");
 
 
   connectWifi();
   syncNTP();
 
 
-  // start the pot target where the knob already is, so we do not
-  // immediately think the user turned it
-  potTarget = readPotAngle();
-  encAngle = readEncoderAngle();
-  lastPotTime = millis();
+  azEncoderAngle = readAzEncoderAngle();
 
 
   calibStartTime = millis();
@@ -649,32 +773,35 @@ void loop() {
   readGPS();
 
 
-  // estop
-  bool button = digitalRead(estopPin);
-  if (button == LOW && lastButton == HIGH) {
-    estopState = !estopState;
-    delay(10);
-  }
-  lastButton = button;
-
-
-  if (estopState) {
-    stopMotor();
+  bool estopActive = digitalRead(ESTOP_PIN) == LOW;
+  if (estopActive) {
+    stopAzimuthMotor();
+    stopElevationMotor();
     movementStatus = "ESTOP";
     healthStatus = "FAULT";
-    Serial.println("estop");
+
+    if (!estopWasActive) {
+      apiAzTarget = -1.0f;
+      apiElTarget = -1.0f;
+      lastApiTime = 0;
+      isTracking = false;
+      Serial.println("estop active; targets cleared");
+    }
+
+    estopWasActive = true;
     delay(10);
     return;
   }
+
+  if (estopWasActive) {
+    Serial.println("estop released; waiting for a new command");
+  }
+  estopWasActive = false;
   healthStatus = "OK";
 
 
-  // where we are
-  float current = readEncoderAngle();
-  azimuthAngle = current;
-
-  // magnetometer heading, used as a cross check reference only
-  trueHeading = computeTrueHeading();
+  // The encoder is the fast mechanical position used by the motor loop.
+  float azCurrent = readAzEncoderAngle();
 
   if (!readMpu()) {
     if (mpuOk) Serial.println("mpu6050 read failed");
@@ -682,16 +809,20 @@ void loop() {
   } else {
     if (!mpuOk) Serial.println("mpu6050 detected");
     mpuOk = true;
+    updateLevelAngles();
   }
 
+  // The magnetometer supplies true north. The fixed MPU compensates small tilt.
+  trueHeading = computeTrueHeading();
+  updateAzimuthReference(azCurrent);
+  azimuthAngle = encoderToTrueAzimuth(azCurrent);
 
-  // did the user turn the knob
-  float pot = readPotAngle();
-  pot = 180;
-  if (fabs(pot - potTarget) > POT_THRESHOLD) {
-    potTarget = pot;
-    lastPotTime = now;
-    isTracking = false;
+  if (!readElevationMpu()) {
+    if (elMpuOk) Serial.println("elevation mpu6050 read failed");
+    elMpuOk = false;
+  } else {
+    if (!elMpuOk) Serial.println("elevation mpu6050 detected");
+    elMpuOk = true;
   }
 
 
@@ -700,60 +831,80 @@ void loop() {
     float computed = computeAzFromSource();
     if (computed < 0) {
       isTracking = false;
+      apiAzTarget = -1.0f;
+      apiElTarget = -1.0f;
       Serial.println("track failed, clock or params bad");
     } else {
-      apiTarget = computed;
+      apiAzTarget = computed;
+      apiElTarget = (trackEl >= EL_MIN && trackEl <= EL_MAX) ? trackEl : -1.0f;
       lastApiTime = now;
-      if (trackEl < 0) Serial.printf("source below horizon el %.1f\n", trackEl);
+      if (apiElTarget < 0) Serial.printf("source outside elevation range el %.1f\n", trackEl);
     }
   }
 
 
-  // whichever source spoke most recently wins
-  bool apiFresh = (apiTarget >= 0) && (now - lastApiTime < SOURCE_TIMEOUT);
-  bool potFresh = (now - lastPotTime < SOURCE_TIMEOUT);
+  bool azTargetFresh = (apiAzTarget >= AZ_MIN && apiAzTarget <= AZ_MAX)
+                       && (now - lastApiTime < SOURCE_TIMEOUT);
+  float azTarget = apiAzTarget;
+  float azError = 0.0;
+  int azPwm = 0;
 
-
-  float target;
-  const char* source;
-  if (apiFresh && (!potFresh || lastApiTime > lastPotTime)) {
-    target = apiTarget;
-    source = "api";
-  } else {
-    target = potTarget;
-    source = "pot";
-  }
-  target = norm360(target);
-  /*
-    // never aim into the blocked zone
-    if (inBlockedZone(target)) {
-    stopMotor();
-    movementStatus = "BLOCKED";
-    Serial.printf("az %.1f tgt %.1f blocked\n", current, target);
-    } else {*/
-  float error = fabs(cwDistance(current, target));
-  if (error > 180.0) error = 360.0 - error;
-
-
-  int pwm = computePwm(error);
-  int dir = chooseDirection(current, target);
-
-
-  if (pwm == 0) {
-    stopMotor();
+  if (!azTargetFresh) {
+    stopAzimuthMotor();
     movementStatus = "IDLE";
-  } else if (dir == 0) {
-    stopMotor();
-    movementStatus = "NO PATH";
   } else {
-    driveMotor(pwm, dir);
-    movementStatus = isTracking ? "TRACKING" : "MOVING";
+    azTarget = norm360(apiAzTarget);
+
+    // Convert the true azimuth target into the encoder's mechanical frame.
+    float azTargetEncoder = trueAzimuthToEncoder(azTarget);
+    azError = fabs(cwDistance(azCurrent, azTargetEncoder));
+    if (azError > 180.0) azError = 360.0 - azError;
+
+    azPwm = computeAzimuthPwm(azError);
+    int azDirection = chooseDirection(azCurrent, azTargetEncoder);
+
+    if (azPwm == 0) {
+      stopAzimuthMotor();
+      movementStatus = "IDLE";
+    } else if (azDirection == 0) {
+      stopAzimuthMotor();
+      movementStatus = "NO PATH";
+    } else {
+      driveAzimuthMotor(azPwm, azDirection);
+      movementStatus = isTracking ? "TRACKING" : "MOVING";
+    }
   }
 
 
-  Serial.printf("az %.1f tgt %.1f mag %.1f el %.1f err %.1f pwm %d %s %s\n", current, target, trueHeading, trackEl, error, pwm, source, movementStatus.c_str());  /*
+  bool elTargetFresh = (apiElTarget >= EL_MIN && apiElTarget <= EL_MAX)
+                       && (now - lastApiTime < SOURCE_TIMEOUT);
+  float elError = 0.0;
+  int elPwm = 0;
+
+  if (!mpuOk || !elMpuOk || !elTargetFresh) {
+    stopElevationMotor();
+  } else {
+    float signedElError = apiElTarget - elevationAngle;
+    elError = fabs(signedElError);
+    int elDirection = (signedElError >= 0) ? 1 : -1;
+    elPwm = computeElevationPwm(elError);
+
+    bool atLowerLimit = elDirection < 0 && elevationAngle <= EL_MIN;
+    bool atUpperLimit = elDirection > 0 && elevationAngle >= EL_MAX;
+    if (elPwm == 0 || atLowerLimit || atUpperLimit) {
+      stopElevationMotor();
+    } else {
+      driveElevationMotor(elPwm, elDirection);
+      if (movementStatus == "IDLE") {
+        movementStatus = isTracking ? "TRACKING" : "MOVING";
+      }
+    }
   }
-*/
+
+  Serial.printf("enc %.1f az %.1f tgt %.1f mag %.1f gyroZ %.1f base %.1f/%.1f elMpu %.1f el %.1f tgt %.1f err %.1f pwm %d/%d ref %s %s\n",
+                azCurrent, azimuthAngle, azTarget, trueHeading, mpuGyroZ, levelRoll, levelPitch,
+                elevationMpuPitch, elevationAngle, apiElTarget, azError, azPwm, elPwm,
+                azReferenceReady ? "MAG" : "ENC", movementStatus.c_str());
 
 
   // network
