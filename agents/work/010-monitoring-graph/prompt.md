@@ -17,6 +17,8 @@ Show historical measured azimuth and elevation angles for a selected date range.
 - Default the start and end dates to today.
 - Let the user select a sampling frequency.
 - Plot measured azimuth and elevation values in degrees.
+- Place the History Panel below the controls and load it automatically.
+- Show the last active time and grey the sensor panel when readings are stale.
 
 ## Out of scope
 
@@ -36,6 +38,8 @@ Show historical measured azimuth and elevation angles for a selected date range.
 - [x] The user can select start and end dates and a sampling frequency.
 - [x] Azimuth and elevation are displayed as separate lines in degrees.
 - [x] The Angular production build passes.
+- [x] The History Panel appears below the Control Panel and loads on page open.
+- [x] Stale sensor readings show an offline state and the last active time.
 
 ## Likely files
 

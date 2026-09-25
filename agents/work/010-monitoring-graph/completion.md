@@ -8,6 +8,8 @@
 - Defaulted the date range to today.
 - Added selectable sampling from every reading to hourly.
 - Reused the existing reading-range endpoint without backend changes.
+- Placed the History Panel below the Control Panel and load it on page open.
+- Added a grey offline state and last-active time for stale sensor readings.
 
 ## Verification
 

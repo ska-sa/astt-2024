@@ -53,7 +53,11 @@ interface ChartOptions {
   styleUrl: './cam.component.css'
 })
 export class CamComponent {
+  private readonly readingTimeoutMilliseconds = 10000;
+
   reading: Reading | null = null;
+  lastActiveAt: Date | null = null;
+  isDeviceOnline = false;
   width = 360; // Width of the SVG
   height = 90; // Height of the SVG
   knobPosition: { x: number, y: number } = { x: 0, y: 0 };
@@ -136,10 +140,11 @@ export class CamComponent {
       )
       .subscribe({
         next: (reading: Reading) => {
-          this.reading = reading;
+          this.updateLatestReading(reading);
         },
-        error: (err) => {
-          console.error('Error polling readings:', err);
+        error: (error: Error) => {
+          console.error('Error polling readings:', error);
+          this.isDeviceOnline = false;
         }
       });
   }
@@ -152,12 +157,13 @@ export class CamComponent {
     this.isLoading = true;
     this.readingService.getLatestReading(this.telescopeId).subscribe({
       next: (reading: Reading) => {
-        this.reading = reading;
+        this.updateLatestReading(reading);
         console.log('Latest reading loaded successfully:', reading);
         this.isLoading = false;
       },
       error: (error: Error) => {
         console.error('Error loading latest reading:', error);
+        this.isDeviceOnline = false;
         this.isLoading = false;
       }
     });
@@ -293,6 +299,15 @@ export class CamComponent {
 
     const timestamp: number = new Date(reading.created_at.replace(' ', 'T')).getTime();
     return Number.isNaN(timestamp) ? null : timestamp;
+  }
+
+  private updateLatestReading(reading: Reading): void {
+    const readingTime: number | null = this.getReadingTime(reading);
+
+    this.reading = reading;
+    this.lastActiveAt = readingTime === null ? null : new Date(readingTime);
+    this.isDeviceOnline = readingTime !== null
+      && Date.now() - readingTime <= this.readingTimeoutMilliseconds;
   }
 
   private getLocalDate(date: Date): string {
