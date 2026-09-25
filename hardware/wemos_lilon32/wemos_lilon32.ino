@@ -142,6 +142,8 @@ float headingOffset = 90.0;
 float DEFAULT_HEADING = 0.0;   // used when magnetometer is absent or not yet calibrated
 const float MAG_MIN_CALIBRATION_SPAN = 5000.0;
 float trueHeading = DEFAULT_HEADING;
+float levelRoll = 0.0;
+float levelPitch = 0.0;
 
 bool calibrated = false;
 unsigned long calibStartTime = 0;
@@ -408,6 +410,8 @@ float computeTrueHeading() {
   float roll = atan2(mpuAccelY, mpuAccelZ);
   float pitch = atan2(-mpuAccelX,
                       sqrt(mpuAccelY * mpuAccelY + mpuAccelZ * mpuAccelZ));
+  levelRoll = roll * 180.0 / PI;
+  levelPitch = pitch * 180.0 / PI;
   float horizontalX = cx * cos(pitch) + cz * sin(pitch);
   float horizontalY = cx * sin(roll) * sin(pitch)
                       + cy * cos(roll)
@@ -919,8 +923,8 @@ void loop() {
     }
   }
 
-  Serial.printf("enc %.1f az %.1f tgt %.1f mag %.1f gyroZ %.1f el %.1f tgt %.1f err %.1f pwm %d/%d ref %s %s %s\n",
-                current, azimuthAngle, target, trueHeading, mpuGyroZ,
+  Serial.printf("enc %.1f az %.1f tgt %.1f mag %.1f gyroZ %.1f level %.1f/%.1f el %.1f tgt %.1f err %.1f pwm %d/%d ref %s %s %s\n",
+                current, azimuthAngle, target, trueHeading, mpuGyroZ, levelRoll, levelPitch,
                 elevationAngle, apiElTarget, error, pwm, elPwm,
                 azReferenceReady ? "MAG" : "ENC", source, movementStatus.c_str());
 
