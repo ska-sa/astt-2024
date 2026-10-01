@@ -18,7 +18,7 @@ Read [AGENTS.md](AGENTS.md) before starting work. Software details are in
 
 ## Progress
 
-**28 of 81 work items complete.** The checklist is the project source of truth.
+**29 of 82 work items complete.** The checklist is the project source of truth.
 Only mark an item complete after its acceptance criteria have been verified.
 
 ### 1. Software and backend foundation — 11/12 complete
@@ -36,7 +36,7 @@ Only mark an item complete after its acceptance criteria have been verified.
 - [ ] **ASTT-011** Add Keycloak authentication and authorization.
 - [x] **ASTT-081** Improve command confirmation and keep navigation visible. — Sanele
 
-### 2. Electronics and sensor integration — 8/9 complete
+### 2. Electronics and sensor integration — 9/10 complete
 
 - [x] **ASTT-012** Connect the MCU to the backend over Wi-Fi and HTTP. — Sanele
 - [x] **ASTT-013** POST telescope telemetry and readings. — Sanele
@@ -46,7 +46,8 @@ Only mark an item complete after its acceptance criteria have been verified.
 - [x] **ASTT-017** Integrate azimuth encoder feedback. — Sanele
 - [x] **ASTT-018** Integrate magnetometer and true-north measurement. — Sanele
 - [x] **ASTT-019** Integrate GPS location information. — Sanele
-- [ ] **ASTT-020** Build the Veroboard circuit and bottom enclosure. — Uhone
+- [x] **ASTT-020** Complete the manual Veroboard design. — Sanele
+- [ ] **ASTT-082** Reconcile and build the Veroboard circuit and bottom enclosure. — Uhone
 
 ### 3. Motion control — 0/4 complete
 

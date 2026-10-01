@@ -109,9 +109,10 @@ a normally closed E-stop that directly removes motor power.
 ### Electronics and sensors: ASTT-012 to ASTT-020
 
 Wi-Fi/API communication, readings, commands, encoder, magnetometer, GPS, and
-basic sensor integration are complete. The next task is **ASTT-020**: build the
-complete Veroboard circuit, connect both motor channels, and record dimensions,
-connectors, and mounting holes for the PCB and enclosure.
+basic sensor integration are complete. The manual Veroboard design is recorded
+under **ASTT-020**. The next task is **ASTT-082**: reconcile that design with the
+latest firmware pin map and encoder voltage requirements, then build and verify
+the Veroboard circuit and bottom enclosure.
 
 ### Motion and mechanics: ASTT-021 to ASTT-024 and ASTT-032 to ASTT-039
 
