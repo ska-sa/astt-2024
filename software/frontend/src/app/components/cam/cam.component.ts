@@ -297,7 +297,10 @@ export class CamComponent {
       return null;
     }
 
-    const timestamp: number = new Date(reading.created_at.replace(' ', 'T')).getTime();
+    const createdAt: string = reading.created_at.replace(' ', 'T');
+    // SQLite timestamps are UTC, but the API may return them without a timezone.
+    const hasTimezone: boolean = /(?:Z|[+-]\d{2}:\d{2})$/i.test(createdAt);
+    const timestamp: number = new Date(hasTimezone ? createdAt : `${createdAt}Z`).getTime();
     return Number.isNaN(timestamp) ? null : timestamp;
   }
 
