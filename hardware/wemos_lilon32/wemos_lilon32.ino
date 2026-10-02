@@ -10,10 +10,10 @@
 
 
 // ---------- wifi and api ----------
-const char* ssid = "YOUR_WIFI_SSID";
-const char* password = "YOUR_WIFI_PASSWORD";
-const char* commandsUrl = "http://YOUR_BACKEND_IP:8000/api/v1/commands/7/latest";
-const char* readingsUrl = "http://YOUR_BACKEND_IP:8000/api/v1/readings";
+const char* ssid = "SARAO_Guest";
+const char* password = "ska.2009";
+const char* commandsUrl = "http://172.22.9.54:8000/api/v1/commands/7/latest";
+const char* readingsUrl = "http://172.22.9.54:8000/api/v1/readings";
 const char* ntpServer = "pool.ntp.org";
 int telescopeId = 7;
 
