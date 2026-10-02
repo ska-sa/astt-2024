@@ -1,10 +1,11 @@
 # ASTT-020 Veroboard layout
 
-**Status:** Manual design complete; wiring validation required before assembly
+**Status:** Failed — archived reference; do not use for the new build
 
-The manual design was completed on 1 October 2026. ASTT-082 tracks reconciling
-the drawing with the latest firmware and physically building and testing the
-board.
+The manual design was completed on 1 October 2026, but the Veroboard attempt did
+not work. The project has pivoted to a small breadboard under ASTT-082 to avoid
+spending more time on this layout. Keep these files only as a record of the
+attempt; verify all wiring against the latest firmware instead of rebuilding it.
 
 The drawing is split into four pages so wires, connectors, and cuts do not
 overlap:

@@ -1,6 +1,6 @@
 # ASTT-020: Design the Veroboard layout
 
-**Status:** Complete — manual design recorded
+**Status:** Failed — archived after the physical attempt did not work
 **Area:** Hardware
 
 ## Context
@@ -115,8 +115,8 @@ Confirmed:
 - Compare the grid and header spacing with physical measurements.
 - With power disconnected, test intended continuity and isolation at every cut.
 
-## Resume note
+## Outcome
 
-The user completed the layout manually. ASTT-082 now owns comparison with the
-latest firmware, encoder voltage checks, physical measurements, assembly, and
-continuity testing.
+The manual design artifacts were completed, but the user reported that the
+Veroboard attempt did not work. Do not resume this layout. ASTT-082 now owns a
+simpler breadboard build using the latest firmware pin map.

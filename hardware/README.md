@@ -109,10 +109,10 @@ a normally closed E-stop that directly removes motor power.
 ### Electronics and sensors: ASTT-012 to ASTT-020
 
 Wi-Fi/API communication, readings, commands, encoder, magnetometer, GPS, and
-basic sensor integration are complete. The manual Veroboard design is recorded
-under **ASTT-020**. The next task is **ASTT-082**: reconcile that design with the
-latest firmware pin map and encoder voltage requirements, then build and verify
-the Veroboard circuit and bottom enclosure.
+basic sensor integration are complete. The Veroboard attempt under **ASTT-020**
+did not work and is archived for reference. The next task is **ASTT-082**: build
+and verify the same controller on a small breadboard using the latest firmware
+pin map and safe encoder signal levels.
 
 ### Motion and mechanics: ASTT-021 to ASTT-024 and ASTT-032 to ASTT-039
 
@@ -120,11 +120,12 @@ The AZ bracket and mechanical assembly exist. Complete motor wiring, verify AZ
 closed-loop movement, finish the EL assembly, then package the electronics so
 movement cannot strain or entangle the remaining power cable.
 
-### Integrated PCB: ASTT-025 to ASTT-031
+### Breadboard and enclosure
 
-Treat the working Veroboard circuit as the PCB reference. Confirm rotating versus
-stationary components, power requirements, E-stop routing, sensors, drivers, and
-connectors before manufacturing. Bench-test the populated PCB before installation.
+Use short, labelled connections and shared power rails on the small breadboard.
+Keep motor current off the breadboard and route it through the L298 terminals.
+After ASTT-082 passes bench testing, ASTT-036 and ASTT-038 cover designing and
+fitting a simple enclosure around the working circuit.
 
 ### Calibration and qualification: ASTT-040 to ASTT-051
 

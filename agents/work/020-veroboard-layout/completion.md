@@ -1,6 +1,6 @@
 # ASTT-020 progress notes
 
-**Status:** Complete — manual design recorded
+**Status:** Failed — archived after the physical attempt did not work
 
 ## Result
 
@@ -12,6 +12,8 @@
 - Reserved GPIO35 and a female header for a future elevation encoder.
 - Updated the connector, jumper, and copper-cut tables.
 - Preserved `hardware/vero.drawio` as the user's reference diagram.
+- The user later reported that the Veroboard attempt did not work.
+- The layout is archived and will not be rebuilt.
 
 ## Checked
 
@@ -20,11 +22,10 @@
 - The drawing separates wiring, placement, jumpers, and cuts to avoid overlap.
 - No hardware was cut, soldered, powered, or flashed.
 
-## ASTT-082 follow-up
+## ASTT-082 pivot
 
-- Reconcile the drawing's motor pins with the latest integrated firmware before soldering.
+- Build the controller on a small breadboard using the latest firmware pin map.
 - Confirm MAE3 encoder supply and ESP32-safe signal-level conversion.
-- Measure the real Veroboard and LOLIN32 header spacing.
-- Confirm every connector position fits the physical modules and enclosure.
+- Keep motor current on the L298 terminals and off the breadboard rails.
 - Confirm the elevation MPU mounting direction and AD0/address-pad option.
-- Review all 34 cuts and W1–W25 jumpers before physical assembly.
+- Design the enclosure only after the breadboard circuit passes bench testing.
