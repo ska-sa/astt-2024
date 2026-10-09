@@ -7,6 +7,8 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
+    volumes:
+      - backend-databases:/app/databases
 
   astt-software-frontend-service:
     container_name: astt-software-frontend-container
@@ -24,4 +26,5 @@ services:
       - astt-software-backend-service
 
 volumes:
+  backend-databases:
   frontend-node-modules:
