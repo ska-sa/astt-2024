@@ -18,10 +18,10 @@ Read [AGENTS.md](AGENTS.md) before starting work. Software details are in
 
 ## Progress
 
-**28 of 75 work items complete.** The checklist is the project source of truth.
+**38 of 77 work items complete.** The checklist is the project source of truth.
 Only mark an item complete after its acceptance criteria have been verified.
 
-### 1. Software and backend foundation — 11/12 complete
+### 1. Software and backend foundation — 12/14 complete
 
 - [x] **ASTT-001** Create the database schema for telescopes, readings, commands, and sources. — Slindile
 - [x] **ASTT-002** Implement FastAPI CRUD endpoints. — Slindile
@@ -35,8 +35,10 @@ Only mark an item complete after its acceptance criteria have been verified.
 - [x] **ASTT-010** Stabilize the monitoring graph and live-data filtering. — Sanele
 - [ ] **ASTT-011** Add Keycloak authentication and authorization.
 - [x] **ASTT-081** Improve command confirmation and keep navigation visible. — Sanele
+- [x] **ASTT-083** Configure Docker LAN access through an environment file. — Sanele
+- [ ] **ASTT-084** Add a UI stop control that holds the current measured angles. — Sanele
 
-### 2. Electronics and sensor integration — 8/10 complete
+### 2. Electronics and sensor integration — 10/10 complete
 
 - [x] **ASTT-012** Connect the MCU to the backend over Wi-Fi and HTTP. — Sanele
 - [x] **ASTT-013** POST telescope telemetry and readings. — Sanele
@@ -46,15 +48,15 @@ Only mark an item complete after its acceptance criteria have been verified.
 - [x] **ASTT-017** Integrate azimuth encoder feedback. — Sanele
 - [x] **ASTT-018** Integrate magnetometer and true-north measurement. — Sanele
 - [x] **ASTT-019** Integrate GPS location information. — Sanele
-- [ ] **ASTT-020** Complete the manual Veroboard design. — Failed; archived for reference
-- [ ] **ASTT-082** Build and verify the controller on a small breadboard. — Sanele
+- [x] **ASTT-020** Complete the manual Veroboard design. — Failed; archived for reference
+- [x] **ASTT-082** Build and verify the controller on a small breadboard. — Sanele
 
-### 3. Motion control — 0/4 complete
+### 3. Motion control — 4/4 complete
 
-- [ ] **ASTT-021** Assemble the AZ mechanical parts and motor bracket.
-- [ ] **ASTT-022** Complete the AZ motor-driver and control wiring.
-- [ ] **ASTT-023** Update MCU firmware to drive AZ movement.
-- [ ] **ASTT-024** Verify closed-loop AZ movement and encoder feedback.
+- [x] **ASTT-021** Assemble the AZ mechanical parts and motor bracket.
+- [x] **ASTT-022** Complete the AZ motor-driver and control wiring.
+- [x] **ASTT-023** Update MCU firmware to drive AZ movement.
+- [x] **ASTT-024** Verify closed-loop AZ movement and encoder feedback.
 
 ### 5. Mechanical integration and enclosure — 2/8 complete
 
@@ -82,15 +84,15 @@ Only mark an item complete after its acceptance criteria have been verified.
 - [ ] **ASTT-050** Qualify the EL motion subsystem independently. — Critical
 - [ ] **ASTT-051** Qualify the E-stop and motion limits. — Critical
 
-### 7. Full-system Point and Track integration — 3/8 complete
+### 7. Full-system Point and Track integration — 6/8 complete
 
 - [x] **ASTT-052** Send Point commands from GUI to backend to hardware. — Sanele
 - [x] **ASTT-053** Send Track commands from GUI to backend to hardware. — Sanele
 - [x] **ASTT-054** Calculate source-based AZ targets. — Sanele
-- [ ] **ASTT-055** Complete Point mode with physical AZ and EL movement. — Critical
+- [x] **ASTT-055** Complete Point mode with physical AZ and EL movement. — Critical
 - [ ] **ASTT-056** Complete continuous Track mode with physical AZ and EL movement. — Critical
-- [ ] **ASTT-057** Return actual AZ, EL, and sensor telemetry during movement. — Critical
-- [ ] **ASTT-058** Display live movement and telemetry in the GUI. — High
+- [x] **ASTT-057** Return actual AZ, EL, and sensor telemetry during movement. — Critical
+- [x] **ASTT-058** Display live movement and telemetry in the GUI. — High
 - [ ] **ASTT-059** Test source to command to movement to feedback end to end. — Critical
 
 ### 8. Experimental validation — 0/9 complete
@@ -122,6 +124,6 @@ Only mark an item complete after its acceptance criteria have been verified.
 
 ## Immediate order
 
-Build and verify the small breadboard controller, move both axes with feedback,
-close the Point/Track loop, then design its enclosure, calibrate, and qualify the
-complete system. Keycloak and cosmetic frontend work stay at the end.
+Add the UI stop control, complete continuous Track mode and its end-to-end test,
+then design the enclosure, calibrate, and qualify the complete system. Keycloak
+and cosmetic frontend work stay at the end.

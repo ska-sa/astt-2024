@@ -18,13 +18,16 @@ software/
 From the repository root:
 
 ```bash
+cp software/.env.example software/.env
+# Set HOST_IP in software/.env to this computer's LAN IP.
 docker compose -f software/docker-compose.yaml up --build
 ```
 
-The frontend is served on `http://localhost:4200` and the API on
-`http://localhost:8000`. The frontend automatically rebuilds and refreshes when
+The frontend is served on `http://<HOST_IP>:4200` and the API on
+`http://<HOST_IP>:8000`. The frontend automatically rebuilds and refreshes when
 files under `software/frontend` change. Rebuild the container when dependencies
-in `package.json` change.
+in `package.json` change. Docker stores SQLite data in the persistent
+`backend-databases` volume.
 
 ## Current API flow
 

@@ -5,8 +5,10 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    environment:
+      FRONTEND_ORIGIN: "http://${HOST_IP}:4200"
     ports:
-      - "8000:8000"
+      - "${HOST_IP}:8000:8000"
     volumes:
       - backend-databases:/app/databases
 
@@ -18,7 +20,7 @@ services:
       dockerfile: Dockerfile
       target: development
     ports:
-      - "4200:4200"
+      - "${HOST_IP}:4200:4200"
     volumes:
       - ./frontend:/app
       - frontend-node-modules:/app/node_modules

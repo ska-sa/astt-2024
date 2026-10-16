@@ -1,3 +1,5 @@
+import os
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from classes.user import CreateUser, User
@@ -15,9 +17,8 @@ import uvicorn
 BASE_URL = "/api/v1"
 app = FastAPI()
 
-origins = [
-    "http://localhost:4200",
-]
+frontend_origin: str | None = os.getenv("FRONTEND_ORIGIN")
+origins: list[str] = [frontend_origin] if frontend_origin else []
 
 app.add_middleware(
     CORSMiddleware,
