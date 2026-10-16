@@ -885,5 +885,5 @@ void loop() {
 }
 /*
 Anti Clockwise Limit Azimuth Angle: 252.4°
-Clockwise Limit Azimuth Angle: Not sure yet
+Clockwise Limit Azimuth Angle: Not sure yet. could be 252.4° + 100 becase the doc had limit at -130 and +130. So 252.4° + 100 = 352.4°.
 */
