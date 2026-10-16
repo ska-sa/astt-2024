@@ -34,12 +34,8 @@ const int ESTOP_PIN = 23;
 
 
 // ---------- azimuth control ----------
-// Full circle is allowed except the blocked zone, which is where cables
-// or hardstops live. The blocked zone may wrap through 0.
 const float AZ_MIN = 0.0;
 const float AZ_MAX = 360.0;
-const float AZ_BLOCK_START = 360.0;  // start of blocked zone, going clockwise
-const float AZ_BLOCK_END = 139.0;    // end of blocked zone, going clockwise
 const float AZ_TOLERANCE = 1.0;
 const float AZ_RAMP_RANGE = 60.0;
 const int AZ_MIN_PWM = 140;
@@ -282,41 +278,11 @@ void updateAzimuthReference(float encoderAngle) {
 }
 
 
-bool inBlockedZone(float angle) {
-  float a = norm360(angle);
-  if (AZ_BLOCK_START <= AZ_BLOCK_END) {
-    return a >= AZ_BLOCK_START && a <= AZ_BLOCK_END;
-  }
-  // zone wraps through 0
-  return a >= AZ_BLOCK_START || a <= AZ_BLOCK_END;
-}
-
-
-// walk the path one degree at a time and see if it enters the blocked zone
-bool pathIsBlocked(float from, float to, int direction) {
-  float dist = (direction > 0) ? cwDistance(from, to) : cwDistance(to, from);
-  for (float step = 0; step <= dist; step += 1.0) {
-    float here = (direction > 0) ? from + step : from - step;
-    if (inBlockedZone(here)) return true;
-  }
-  return false;
-}
-
-
-// +1 is clockwise, -1 is counter clockwise, 0 means no safe path
+// +1 is clockwise and -1 is counter clockwise.
 int chooseDirection(float current, float target) {
-  float cw = cwDistance(current, target);
-  float ccw = cwDistance(target, current);
-
-
-  bool cwOk = !pathIsBlocked(current, target, 1);
-  bool ccwOk = !pathIsBlocked(current, target, -1);
-
-
-  if (cwOk && ccwOk) return (cw <= ccw) ? 1 : -1;  // both clear, take shorter
-  if (cwOk) return 1;
-  if (ccwOk) return -1;
-  return 0;
+  float clockwiseDistance = cwDistance(current, target);
+  float counterClockwiseDistance = cwDistance(target, current);
+  return (clockwiseDistance <= counterClockwiseDistance) ? 1 : -1;
 }
 
 
@@ -866,9 +832,6 @@ void loop() {
     if (azPwm == 0) {
       stopAzimuthMotor();
       movementStatus = "IDLE";
-    } else if (azDirection == 0) {
-      stopAzimuthMotor();
-      movementStatus = "NO PATH";
     } else {
       driveAzimuthMotor(azPwm, azDirection);
       movementStatus = isTracking ? "TRACKING" : "MOVING";
@@ -920,3 +883,7 @@ void loop() {
 
 
 }
+/*
+Anti Clockwise Limit Azimuth Angle: 252.4°
+Clockwise Limit Azimuth Angle: Not sure yet
+*/
