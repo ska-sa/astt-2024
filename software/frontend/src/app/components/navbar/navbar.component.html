@@ -24,6 +24,7 @@
       </li>
     </ul>
     <div class="d-flex align-items-center">
+      <span class="navbar-text small">{{ currentUser()?.email_address }}</span>
       <a class="nav-link text-danger" (click)="signOut()">
         <i class="fa-solid fa-arrow-right-from-bracket fa-fw"></i>
         <span class="ms-2 d-none d-lg-inline">Sign Out</span>

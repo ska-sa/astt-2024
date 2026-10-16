@@ -1,7 +1,8 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, Signal } from '@angular/core';
 import { NgClass } from '@angular/common';
 import { ActivatedRoute, NavigationEnd, Router, RouterModule } from '@angular/router';
-import { setUser } from '../../signal';
+import { User } from '../../interfaces/user';
+import { getUser, setUser, user } from '../../signal';
 
 @Component({
   selector: 'app-navbar',
@@ -14,10 +15,12 @@ import { setUser } from '../../signal';
 })
 export class NavbarComponent implements OnInit {
   currentRoute: string = "";
+  currentUser: Signal<User | null> = user;
 
   constructor(private router: Router, private activatedRoute: ActivatedRoute) {}
 
   ngOnInit() {
+    getUser();
     this.router.events.subscribe((event) => {
       if (event instanceof NavigationEnd) {
         this.currentRoute = this.activatedRoute.snapshot.url[0]?.path;
