@@ -9,4 +9,4 @@ agents/work/NNN-short-title/
 ```
 
 Use the existing `ASTT-NNN` number from the root checklist. The next number for
-a new, unlisted item is **085**. Current project progress is **38/77 complete**.
+a new, unlisted item is **086**. Current project progress is **38/78 complete**.

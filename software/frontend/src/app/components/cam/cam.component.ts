@@ -13,6 +13,9 @@ import { SourceService } from '../../services/source.service';
 import { Source } from '../../interfaces/source';
 import { CreateSource } from '../../interfaces/create-source';
 import { CanvasJSAngularChartsModule } from '@canvasjs/angular-charts';
+import { HttpErrorResponse } from '@angular/common/http';
+import { Telescope, TelescopeMetadata } from '../../interfaces/telescope';
+import { TelescopeService } from '../../services/telescope.service';
 
 interface ChartDataPoint {
   x: Date;
@@ -66,6 +69,10 @@ export class CamComponent {
   isPointingPageActive = false;
   isLoading = false;
   commandMessage = '';
+  commandError: string = '';
+  telescopeMetadata: TelescopeMetadata | null = null;
+  azimuthRange: string = '';
+  calibrationMessage: string = 'Loading azimuth calibration...';
   graphStartDate = '';
   graphEndDate = '';
   sampleIntervalMinutes = 5;
@@ -101,6 +108,7 @@ export class CamComponent {
     private route: ActivatedRoute,
     private readingService: ReadingService,
     private sourceService: SourceService,
+    private telescopeService: TelescopeService,
   ) {
     this.route.paramMap.subscribe(params => {
       const id = params.get('id');
@@ -113,6 +121,7 @@ export class CamComponent {
     this.graphStartDate = today;
     this.graphEndDate = today;
     this.loadReading();
+    this.loadTelescope();
     this.startPollingReadings();
     this.getSources();
     this.loadGraph();
@@ -122,6 +131,42 @@ export class CamComponent {
 
   ngOnDestroy(): void {
     this.pollSubscription?.unsubscribe();
+  }
+
+  loadTelescope(): void {
+    if (!this.telescopeId) return;
+
+    this.telescopeMetadata = null;
+    this.azimuthRange = '';
+    this.calibrationMessage = 'Loading azimuth calibration...';
+    this.telescopeService.getTelescope(this.telescopeId).subscribe({
+      next: (telescope: Telescope) => {
+        const metadata: TelescopeMetadata | null | undefined = telescope.metadata;
+        if (!metadata
+            || !Number.isFinite(metadata.az_encoder_min)
+            || !Number.isFinite(metadata.az_encoder_max)
+            || !Number.isFinite(metadata.az_encoder_offset)
+            || metadata.az_encoder_min < 0
+            || metadata.az_encoder_min >= 360
+            || metadata.az_encoder_max < 0
+            || metadata.az_encoder_max >= 360
+            || metadata.az_encoder_offset < 0
+            || metadata.az_encoder_offset >= 360) {
+          this.calibrationMessage = 'Encoder calibration unavailable. Flash the updated firmware and reload.';
+          return;
+        }
+
+        this.telescopeMetadata = metadata;
+        this.calibrationMessage = '';
+        const minimum: number = this.normalizeAzimuth(metadata.az_encoder_min + metadata.az_encoder_offset);
+        const maximum: number = this.normalizeAzimuth(metadata.az_encoder_max + metadata.az_encoder_offset);
+        this.azimuthRange = `${+minimum.toFixed(2)}° to ${+maximum.toFixed(2)}°${minimum > maximum ? ' through 0°' : ''}`;
+      },
+      error: (error: HttpErrorResponse) => {
+        console.error('Error loading telescope calibration:', error);
+        this.calibrationMessage = 'Encoder calibration unavailable. Check the backend connection and reload.';
+      }
+    });
   }
 
   showCommandMessage(message: string): void {
@@ -338,11 +383,13 @@ export class CamComponent {
 
   point(): void {
     this.isPointing = true;
+    this.commandError = '';
     this.updateAzimuthElevation();
   }
 
   track(): void {
     this.isPointing = false;
+    this.commandError = '';
   }
 
   selectSource(source: Source): void {
@@ -350,19 +397,29 @@ export class CamComponent {
     console.log('Selected source:', source);
   }
 
-  clipAzimuthAngle(): void {
-    this.azimuth_angle = Math.max(0, Math.min(360, this.azimuth_angle));
-    return;
-  }
-
-  clipElevationAngle(): void {
-    this.elevation_angle = Math.max(0, Math.min(90, this.elevation_angle));
-    return;
-  }
-
   startPointing(): void {
-    this.clipAzimuthAngle();
-    this.clipElevationAngle();
+    this.commandError = '';
+    if (!Number.isFinite(this.azimuth_angle) || this.azimuth_angle < 0 || this.azimuth_angle > 360) {
+      this.commandError = 'Azimuth must be a number between 0° and 360°.';
+      return;
+    }
+    if (!Number.isFinite(this.elevation_angle) || this.elevation_angle < 0 || this.elevation_angle > 90) {
+      this.commandError = 'Elevation must be a number between 0° and 90°.';
+      return;
+    }
+    if (!this.telescopeMetadata) {
+      this.commandError = this.calibrationMessage;
+      return;
+    }
+
+    const rawAzimuth: number = this.normalizeAzimuth(this.azimuth_angle - this.telescopeMetadata.az_encoder_offset);
+    const allowedSpan: number = this.normalizeAzimuth(this.telescopeMetadata.az_encoder_max - this.telescopeMetadata.az_encoder_min);
+    const targetPosition: number = this.normalizeAzimuth(rawAzimuth - this.telescopeMetadata.az_encoder_min);
+    if (targetPosition > allowedSpan) {
+      this.commandError = `Azimuth must be within the allowed range: ${this.azimuthRange}.`;
+      return;
+    }
+
     this.isLoading = true;
     const createCommand: CreateCommand = {
       user_id: getUser()?.id ?? 0,
@@ -382,11 +439,23 @@ export class CamComponent {
         this.isPointingPageActive = true;
         this.showCommandMessage('Point command sent successfully.');
       },
-      error: (error) => {
+      error: (error: HttpErrorResponse) => {
         console.error('Error sending command:', error);
         this.isLoading = false;
+        this.commandError = this.getCommandError(error);
       }
     });
+  }
+
+  private normalizeAzimuth(angle: number): number {
+    const normalized: number = angle % 360;
+    return normalized < 0 ? normalized + 360 : normalized;
+  }
+
+  private getCommandError(error: HttpErrorResponse): string {
+    return typeof error.error?.detail === 'string'
+      ? error.error.detail
+      : 'Could not send the command. Please try again.';
   }
 
   // dialog helpers
@@ -455,6 +524,7 @@ export class CamComponent {
   startTracking(): void {
     if (!this.selectedSource) return;
 
+    this.commandError = '';
     this.isLoading = true;
     const createCommand: CreateCommand = {
       user_id: getUser()?.id ?? 0,
@@ -483,9 +553,10 @@ export class CamComponent {
         this.isLoading = false;
         this.showCommandMessage('Track command sent successfully.');
       },
-      error: (error) => {
+      error: (error: HttpErrorResponse) => {
         console.error('Error sending command:', error);
         this.isLoading = false;
+        this.commandError = this.getCommandError(error);
       }
     });
   }

@@ -78,6 +78,8 @@
             </div>
           </div>
 
+          <div *ngIf="commandError" class="alert alert-danger py-2" role="alert">{{ commandError }}</div>
+
           <div *ngIf="isPointing">
             <div class="row mt-2">
               <div class="col">
@@ -89,8 +91,12 @@
                   min="0"
                   max="360"
                   placeholder="0 - 360"
-                  (change)="clipAzimuthAngle()"
                 >
+                <div *ngIf="telescopeMetadata" class="small text-muted mt-1">
+                  Allowed azimuth: {{ azimuthRange }}.
+                  <div *ngIf="telescopeMetadata.az_range_temporary">Temporary test range; opposite stop is assumed and still needs measurement.</div>
+                </div>
+                <div *ngIf="calibrationMessage" class="small text-warning mt-1">{{ calibrationMessage }}</div>
               </div>
               <div class="col">
                 <label class="form-label">Elevation Angle (0° - 90°)</label>
@@ -101,7 +107,6 @@
                   min="0"
                   max="90"
                   placeholder="0 - 90"
-                  (change)="clipElevationAngle()"
                 >
               </div>
             </div>

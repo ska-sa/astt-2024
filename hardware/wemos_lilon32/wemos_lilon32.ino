@@ -36,6 +36,9 @@ const int ESTOP_PIN = 23;
 // ---------- azimuth control ----------
 const float AZ_MIN = 0.0;
 const float AZ_MAX = 360.0;
+const float AZ_ENCODER_MIN = 137.8;  // reported physical stop in the decreasing direction
+const float AZ_ENCODER_MAX = 37.8;   // assumed opposite stop; allowed travel crosses 360/0
+const float AZ_ENCODER_OFFSET = 0.0; // encoder-only reference for testing
 const float AZ_TOLERANCE = 1.0;
 const float AZ_RAMP_RANGE = 60.0;
 const int AZ_MIN_PWM = 140;
@@ -56,11 +59,8 @@ const float EL_ZERO_OFFSET = 0.0;  // set after the horizontal position is measu
 // ---------- encoder ----------
 const int AZ_ENCODER_SAMPLES = 7;        // odd number, we take the median
 const float AZ_ENCODER_SMOOTHING = 0.5;  // 0 is no smoothing, 1 never updates
-const float MAG_CORRECTION_GAIN = 0.02;
-const float GYRO_STATIONARY_DPS = 1.5;
 float azEncoderAngle = 0.0;
-float azEncoderOffset = 0.0;
-bool azReferenceReady = false;
+bool azEncoderReady = false;
 
 
 // ---------- command targets ----------
@@ -234,7 +234,7 @@ float norm360(float a) {
 }
 
 
-// distance going clockwise from a to b
+// Distance from a to b in the increasing encoder-angle direction.
 float cwDistance(float from, float to) {
   return norm360(to - from);
 }
@@ -249,40 +249,33 @@ float signedAngleDifference(float from, float to) {
 
 
 float encoderToTrueAzimuth(float encoderAngle) {
-  if (!azReferenceReady) return norm360(encoderAngle);
-  return norm360(encoderAngle + azEncoderOffset);
+  return norm360(encoderAngle + AZ_ENCODER_OFFSET);
 }
 
 
 float trueAzimuthToEncoder(float trueAzimuth) {
-  if (!azReferenceReady) return norm360(trueAzimuth);
-  return norm360(trueAzimuth - azEncoderOffset);
+  return norm360(trueAzimuth - AZ_ENCODER_OFFSET);
 }
 
 
-void updateAzimuthReference(float encoderAngle) {
-  if (!magOk || !calibrated || !mpuOk) return;
-  if (fabs(mpuGyroZ) > GYRO_STATIONARY_DPS) return;
-  if (movementStatus != "IDLE") return;
+bool inAzimuthNoGoZone(float angle) {
+  return cwDistance(AZ_ENCODER_MIN, angle) > cwDistance(AZ_ENCODER_MIN, AZ_ENCODER_MAX);
+}
 
-  if (!azReferenceReady) {
-    azEncoderOffset = norm360(trueHeading - encoderAngle);
-    azReferenceReady = true;
-    Serial.printf("az reference ready offset %.1f\n", azEncoderOffset);
-    return;
+
+// +1 requests an increasing encoder angle, -1 a decreasing angle, and 0 stops.
+int chooseDirection(float current, float target) {
+  if (!isfinite(current) || !isfinite(target)) return 0;
+  if (inAzimuthNoGoZone(target)) return 0;
+
+  if (inAzimuthNoGoZone(current)) {
+    // Allow small measurement errors at a stop, but only move back into the safe arc.
+    if (cwDistance(current, AZ_ENCODER_MIN) <= AZ_TOLERANCE) return 1;
+    if (cwDistance(AZ_ENCODER_MAX, current) <= AZ_TOLERANCE) return -1;
+    return 0;
   }
 
-  float encoderHeading = encoderToTrueAzimuth(encoderAngle);
-  float correction = signedAngleDifference(encoderHeading, trueHeading);
-  azEncoderOffset = norm360(azEncoderOffset + MAG_CORRECTION_GAIN * correction);
-}
-
-
-// +1 is clockwise and -1 is counter clockwise.
-int chooseDirection(float current, float target) {
-  float clockwiseDistance = cwDistance(current, target);
-  float counterClockwiseDistance = cwDistance(target, current);
-  return (clockwiseDistance <= counterClockwiseDistance) ? 1 : -1;
+  return (cwDistance(AZ_ENCODER_MIN, target) >= cwDistance(AZ_ENCODER_MIN, current)) ? 1 : -1;
 }
 
 
@@ -323,16 +316,22 @@ float readAzEncoderAngle() {
   float median = samples[valid / 2];
 
 
-  // light smoothing, keeps motion continuous without staircasing
-  azEncoderAngle = (AZ_ENCODER_SMOOTHING * azEncoderAngle) + ((1.0 - AZ_ENCODER_SMOOTHING) * median);
-  return norm360(azEncoderAngle);
+  if (!azEncoderReady) {
+    azEncoderAngle = norm360(median);
+    azEncoderReady = true;
+  } else {
+    // Smooth across 359/0 without inventing a position halfway around the circle.
+    float difference = signedAngleDifference(azEncoderAngle, median);
+    azEncoderAngle = norm360(azEncoderAngle + (1.0 - AZ_ENCODER_SMOOTHING) * difference);
+  }
+  return azEncoderAngle;
 }
 
 
 // ================= magnetometer =================
 
 // returns a tilt-compensated true heading in degrees.
-// until calibration is valid, keep the previous heading and use encoder-only control.
+// Diagnostic only: magnetometer headings do not change the movement reference.
 float computeTrueHeading() {
   if (!magOk) {
     magOk = myMag.begin();
@@ -572,8 +571,53 @@ void syncNTP() {
 }
 
 
+// Publish the firmware's active range so the UI uses the same limits after flashing.
+void publishEncoderCalibration() {
+  static bool calibrationPublished = false;
+  if (calibrationPublished || WiFi.status() != WL_CONNECTED) return;
+
+  String telescopeUrl = String(commandsUrl);
+  telescopeUrl.replace("/commands/", "/telescopes/");
+  telescopeUrl.replace("/latest", "");
+
+  WiFiClient client;
+  HTTPClient http;
+  http.begin(client, telescopeUrl);
+  int responseCode = http.GET();
+  if (responseCode != 200) {
+    Serial.printf("calibration GET failed: %d\n", responseCode);
+    http.end();
+    return;
+  }
+
+  JsonDocument doc;
+  if (deserializeJson(doc, http.getString())) {
+    Serial.println("calibration response could not be read");
+    http.end();
+    return;
+  }
+  http.end();
+
+  doc["metadata"]["az_encoder_min"] = AZ_ENCODER_MIN;
+  doc["metadata"]["az_encoder_max"] = AZ_ENCODER_MAX;
+  doc["metadata"]["az_encoder_offset"] = AZ_ENCODER_OFFSET;
+  doc["metadata"]["az_range_temporary"] = true;
+
+  String payload;
+  serializeJson(doc, payload);
+  http.begin(client, telescopeUrl);
+  http.addHeader("Content-Type", "application/json");
+  responseCode = http.PUT(payload);
+  calibrationPublished = responseCode == 200;
+  Serial.printf("calibration PUT %d: encoder %.1f to %.1f, offset %.1f\n",
+                responseCode, AZ_ENCODER_MIN, AZ_ENCODER_MAX, AZ_ENCODER_OFFSET);
+  http.end();
+}
+
+
 void postReadings() {
   if (WiFi.status() != WL_CONNECTED) return;
+  publishEncoderCalibration();
 
 
   WiFiClient client;
@@ -717,6 +761,7 @@ void setup() {
 
   connectWifi();
   syncNTP();
+  publishEncoderCalibration();
 
 
   azEncoderAngle = readAzEncoderAngle();
@@ -778,9 +823,8 @@ void loop() {
     updateLevelAngles();
   }
 
-  // The magnetometer supplies true north. The fixed MPU compensates small tilt.
+  // Keep magnetometer readings for diagnostics; movement uses the fixed encoder reference.
   trueHeading = computeTrueHeading();
-  updateAzimuthReference(azCurrent);
   azimuthAngle = encoderToTrueAzimuth(azCurrent);
 
   if (!readElevationMpu()) {
@@ -812,8 +856,10 @@ void loop() {
   bool azTargetFresh = (apiAzTarget >= AZ_MIN && apiAzTarget <= AZ_MAX)
                        && (now - lastApiTime < SOURCE_TIMEOUT);
   float azTarget = apiAzTarget;
+  float azTargetEncoder = -1.0;
   float azError = 0.0;
   int azPwm = 0;
+  int azDirection = 0;
 
   if (!azTargetFresh) {
     stopAzimuthMotor();
@@ -821,20 +867,26 @@ void loop() {
   } else {
     azTarget = norm360(apiAzTarget);
 
-    // Convert the true azimuth target into the encoder's mechanical frame.
-    float azTargetEncoder = trueAzimuthToEncoder(azTarget);
-    azError = fabs(cwDistance(azCurrent, azTargetEncoder));
-    if (azError > 180.0) azError = 360.0 - azError;
+    // Convert the UI angle with the fixed encoder offset (zero during testing).
+    azTargetEncoder = trueAzimuthToEncoder(azTarget);
+    azDirection = chooseDirection(azCurrent, azTargetEncoder);
 
-    azPwm = computeAzimuthPwm(azError);
-    int azDirection = chooseDirection(azCurrent, azTargetEncoder);
-
-    if (azPwm == 0) {
+    if (azDirection == 0) {
       stopAzimuthMotor();
-      movementStatus = "IDLE";
+      movementStatus = inAzimuthNoGoZone(azCurrent) ? "AZ POSITION BLOCKED" : "AZ TARGET BLOCKED";
     } else {
-      driveAzimuthMotor(azPwm, azDirection);
-      movementStatus = isTracking ? "TRACKING" : "MOVING";
+      azError = (azDirection > 0)
+                ? cwDistance(azCurrent, azTargetEncoder)
+                : cwDistance(azTargetEncoder, azCurrent);
+      azPwm = computeAzimuthPwm(azError);
+
+      if (azPwm == 0) {
+        stopAzimuthMotor();
+        movementStatus = "IDLE";
+      } else {
+        driveAzimuthMotor(azPwm, azDirection);
+        movementStatus = isTracking ? "TRACKING" : "MOVING";
+      }
     }
   }
 
@@ -864,10 +916,11 @@ void loop() {
     }
   }
 
-  Serial.printf("enc %.1f az %.1f tgt %.1f mag %.1f gyroZ %.1f base %.1f/%.1f elMpu %.1f el %.1f tgt %.1f err %.1f pwm %d/%d ref %s %s\n",
-                azCurrent, azimuthAngle, azTarget, trueHeading, mpuGyroZ, levelRoll, levelPitch,
+  Serial.printf("enc %.4f encTgt %.4f dir %d offset %.4f az %.4f tgt %.1f mag %.1f gyroZ %.1f base %.1f/%.1f elMpu %.1f el %.1f tgt %.1f err %.1f pwm %d/%d ref ENC %s\n",
+                azCurrent, azTargetEncoder, azDirection, AZ_ENCODER_OFFSET,
+                azimuthAngle, azTarget, trueHeading, mpuGyroZ, levelRoll, levelPitch,
                 elevationMpuPitch, elevationAngle, apiElTarget, azError, azPwm, elPwm,
-                azReferenceReady ? "MAG" : "ENC", movementStatus.c_str());
+                movementStatus.c_str());
 
 
   // network
@@ -884,6 +937,9 @@ void loop() {
 
 }
 /*
-Anti Clockwise Limit Azimuth Angle: 252.4°
-Clockwise Limit Azimuth Angle: Not sure yet. could be 252.4° + 100 becase the doc had limit at -130 and +130. So 252.4° + 100 = 352.4°.
+Reported lower physical stop: raw encoder 137.8°.
+Assumed opposite stop: raw encoder 37.8° (still requires measurement).
+Allowed travel: 137.8° through 360/0° to 37.8°, fixed offset 0°.
+No-go zone: between 37.8° and 137.8°, excluding the endpoints.
+Point test examples: AZ 250°, 350°, 20°; keep EL at its current measured value.
 */

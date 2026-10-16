@@ -18,9 +18,9 @@ motor with E-stop handling. A firmware-only EL control draft uses a second
 MPU6050 for feedback and L298 channel B. It still needs wiring, calibration, and
 bench testing before use.
 
-Use encoder feedback for motion control and the magnetometer as an absolute
-heading/calibration reference. Elevation uses accelerometer-derived tilt because
-a gyro alone will drift.
+Current AZ tests use encoder feedback with a fixed zero offset. Magnetometer
+readings remain diagnostic until the encoder and travel limits are qualified.
+Elevation uses accelerometer-derived tilt because a gyro alone will drift.
 
 ### Control pin map
 
@@ -71,17 +71,16 @@ sign and zero offset before enabling the motor.
 
 ### Azimuth reference model
 
-Use both the encoder and magnetometer, but give them different jobs:
+The current test mode uses only the encoder for AZ movement:
 
 - The **encoder** is the fast feedback used to move and stop the azimuth motor.
   Its mechanical angle is also used for the configured cable/hard-stop blocked
   zone.
-- The **magnetometer** supplies the absolute true-north reference. While the
-  mount is stationary, it slowly corrects the encoder's true-north offset.
+- The **magnetometer** is diagnostic only. It cannot change the movement offset.
 - The azimuth-platform **MPU6050 accelerometer** supplies roll and pitch so a
   small manual levelling error can be removed from the magnetometer heading.
-- The azimuth-platform **MPU6050 gyro Z rate** tells the firmware when azimuth
-  is moving. The gyro is not integrated into an angle because its bias would drift.
+- The azimuth-platform **MPU6050 gyro Z rate** remains telemetry. It is not
+  integrated into an angle because its bias would drift.
 
 Mount the magnetometer and `0x68` MPU rigidly on the azimuth platform with known
 axis alignment and the MPU Z axis vertical. The `0x69` MPU moves with elevation.
@@ -89,9 +88,32 @@ axis alignment and the MPU Z axis vertical. The `0x69` MPU moves with elevation.
 The control calculation is:
 
 ```text
-true azimuth = encoder angle + north offset
-encoder target = requested true azimuth - north offset
-motor error = shortest encoder-angle difference to encoder target
+displayed azimuth = encoder angle + fixed offset (currently zero)
+encoder target = requested azimuth - fixed offset
+motor error = encoder-angle distance along the safe route to the encoder target
+```
+
+The confirmed lower physical stop is raw `137.8°`. The user has selected
+`37.8°` as an assumed opposite stop for testing. Allowed travel runs from
+`137.8°` through `360°/0°` to `37.8°`; the gap between `37.8°` and `137.8°` is
+blocked. The UI uses the same encoder angles with zero offset. The user reports
+successful Point tests at `20°`, `30°`, and `200°` without hitting a limit switch.
+The earlier `150°`, `170°`, and `190°` tests passed within the smaller window.
+These interior tests do not measure the assumed opposite stop; that measurement
+and stopping-accuracy checks remain pending. Hold EL at its current measured
+position during AZ-only tests.
+
+On boot, the firmware publishes these constants into telescope JSON metadata
+using existing GET/PUT endpoints. Refresh CAM after flashing to load its limits.
+The UI and backend reject Point targets outside the range without changing the
+entered value. Serial output includes `enc`, `encTgt`, `dir`, `offset`, and
+`ref ENC`. Circular smoothing avoids jumps across `359°/0°`. Final stop
+measurement and repeatable stopping checks remain pending under ASTT-085.
+
+Computer-only math checks (requires Python and `g++`, no board needed):
+
+```bash
+python3 hardware/tests/test_azimuth_control.py
 ```
 
 Do not drive directly from magnetometer error. Motors, steel, and current can

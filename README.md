@@ -18,10 +18,10 @@ Read [AGENTS.md](AGENTS.md) before starting work. Software details are in
 
 ## Progress
 
-**38 of 77 work items complete.** The checklist is the project source of truth.
+**38 of 78 work items complete.** The checklist is the project source of truth.
 Only mark an item complete after its acceptance criteria have been verified.
 
-### 1. Software and backend foundation — 12/14 complete
+### 1. Software and backend foundation — 12/15 complete
 
 - [x] **ASTT-001** Create the database schema for telescopes, readings, commands, and sources. — Slindile
 - [x] **ASTT-002** Implement FastAPI CRUD endpoints. — Slindile
@@ -37,6 +37,7 @@ Only mark an item complete after its acceptance criteria have been verified.
 - [x] **ASTT-081** Improve command confirmation and keep navigation visible. — Sanele
 - [x] **ASTT-083** Configure Docker LAN access through an environment file. — Sanele
 - [ ] **ASTT-084** Add a UI stop control that holds the current measured angles. — Sanele
+- [ ] **ASTT-085** Test encoder-only AZ control and reject targets outside shared telescope limits. — Sanele
 
 ### 2. Electronics and sensor integration — 10/10 complete
 
@@ -124,6 +125,8 @@ Only mark an item complete after its acceptance criteria have been verified.
 
 ## Immediate order
 
-Add the UI stop control, complete continuous Track mode and its end-to-end test,
-then design the enclosure, calibrate, and qualify the complete system. Keycloak
-and cosmetic frontend work stay at the end.
+Encoder-only Point tests under ASTT-085 passed at `20°`, `30°`, and `200°` without
+hitting a limit switch. Measure the assumed opposite stop and verify stopping
+accuracy, add the UI stop control, then complete continuous Track mode and its
+end-to-end test. Enclosure work, calibration, and full-system qualification
+follow. Keycloak and cosmetic frontend work stay at the end.

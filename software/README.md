@@ -35,6 +35,17 @@ in `package.json` change. Docker stores SQLite data in the persistent
 - The CAM page reads `GET /api/v1/readings/{telescope_id}/latest`.
 - The frontend posts nested Point or Track commands to `POST /api/v1/commands`.
 - Hardware polls `GET /api/v1/commands/{telescope_id}/latest`.
+- Updated firmware GETs/PUTs its existing telescope record on boot to publish AZ
+  limits in JSON `metadata`. CAM loads the same metadata and rejects invalid
+  Point targets with an inline error; the backend validates configured limits too.
+
+For ASTT-085, flash the encoder-only firmware before testing the new range, then
+refresh CAM. Its fixed offset is zero and temporary AZ range runs from
+`137.8°` through `360°/0°` to the assumed `37.8°` opposite stop. Test targets are
+`250°`, `350°`, and `20°`; `100°` is rejected. The user confirmed physical Point
+tests at `20°`, `30°`, and `200°` without limit-switch strikes. The opposite stop
+is still assumed, not measured. Missing calibration blocks Point submission
+until the updated firmware publishes its configuration.
 
 ## Software work items
 
@@ -52,6 +63,7 @@ in `package.json` change. Docker stores SQLite data in the persistent
 | ASTT-010 | Done | Plot measured azimuth and elevation with date filtering and selectable sampling. |
 | ASTT-011 | Todo | Add Keycloak only after the physical Point/Track loop is stable. |
 | ASTT-081 | Done | Show a blue command confirmation and keep the navbar visible while scrolling. |
+| ASTT-085 | Point tests passed; final calibration pending | Encoder-only AZ reference, shared JSON limits, and Point range validation. |
 
 ## Software verification
 

@@ -24,7 +24,8 @@ class Database:
             `id` INTEGER PRIMARY KEY AUTOINCREMENT,
             `name` VARCHAR(255) UNIQUE,
             `health_status` VARCHAR(50),
-            `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP
+            `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+            `metadata` TEXT NOT NULL DEFAULT '{}'
         );
 
         CREATE TABLE IF NOT EXISTS reading(
@@ -90,9 +91,16 @@ class Database:
             `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP
         );
     """)
+        self.migrate_telescope_table()
         self.migrate_command_table()
         self.migrate_source_table()
         self.conn.commit()
+
+    def migrate_telescope_table(self) -> None:
+        """Add controller metadata without replacing existing telescope records."""
+        columns = self.cur.execute("PRAGMA table_info(telescope)").fetchall()
+        if "metadata" not in [column[1] for column in columns]:
+            self.cur.execute("ALTER TABLE telescope ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}'")
 
     def migrate_command_table(self) -> None:
         columns = self.cur.execute("PRAGMA table_info(command)").fetchall()
