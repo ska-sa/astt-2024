@@ -26,7 +26,8 @@
             <div class="col">
               <strong>Health</strong>
               <div class="ps-2">
-                Status: <span [ngClass]="getHealthStatusClass()">{{ reading?.health_status }}</span>
+                Status: <span [ngClass]="getHealthStatusClass()">{{ reading?.health_status || 'Unknown' }}</span><br>
+                Movement: {{ reading?.movement_status || 'Unknown' }}
               </div>
               <strong>GPS</strong>
               <div class="ps-2">
@@ -44,11 +45,11 @@
             <div class="col">
               <strong>Magnetometer</strong>
               <div class="ps-2">
-                Magnetic Field X: {{ reading?.magnetic_field_x }} T<br>
-                Magnetic Field Y: {{ reading?.magnetic_field_y }} T<br>
-                Magnetic Field Z: {{ reading?.magnetic_field_z }} T
+                Magnetic Field X: {{ reading ? (reading.magnetic_field_x * 1000000 | number:'1.2-2') : '—' }} µT<br>
+                Magnetic Field Y: {{ reading ? (reading.magnetic_field_y * 1000000 | number:'1.2-2') : '—' }} µT<br>
+                Magnetic Field Z: {{ reading ? (reading.magnetic_field_z * 1000000 | number:'1.2-2') : '—' }} µT
               </div>
-              <strong>Rotary Encoder</strong>
+              <strong>Position</strong>
               <div class="ps-2">
                 Azimuth Angle: {{ reading?.azimuth_angle }}&deg;<br>
                 Elevation Angle: {{ reading?.elevation_angle }}&deg;
@@ -61,6 +62,10 @@
               </div>
             </div>
           </div>
+          <details class="mt-3">
+            <summary class="text-primary">Show more</summary>
+            <pre class="small mb-0" style="white-space: pre-wrap; overflow-wrap: anywhere;">{{ reading?.serial_log || 'No diagnostics recorded for this reading.' }}</pre>
+          </details>
         </div>
       </div>
     </div>
@@ -70,15 +75,36 @@
     <div class="col-12 col-md-8 offset-md-2 mt-2">
       <div class="card">
         <div class="card-body">
-          <div class="d-flex justify-content-between align-items-center mb-3">
+          <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
             <h5>Control Panel</h5>
-            <div class="btn-group">
-              <button class="btn btn-primary" (click)="point()" [ngClass]="{'active': isPointing}">Point</button>
-              <button class="btn btn-primary" (click)="track()" [ngClass]="{'active': !isPointing}">Track</button>
+            <div class="d-flex flex-wrap align-items-center gap-2">
+              <span id="command-type-label" class="small text-muted">Command type</span>
+              <div class="btn-group" role="group" aria-labelledby="command-type-label">
+                <button type="button" class="btn btn-outline-primary" (click)="point()" [ngClass]="{'active': isPointing}" [attr.aria-pressed]="isPointing" [disabled]="isStopping">
+                  Point
+                </button>
+                <button type="button" class="btn btn-outline-primary" (click)="track()" [ngClass]="{'active': !isPointing}" [attr.aria-pressed]="!isPointing" [disabled]="isStopping">
+                  Track
+                </button>
+              </div>
             </div>
           </div>
+          <p class="small text-muted">
+            Software hold only: moves to the latest reported position and may be delayed.
+            Use the physical E-stop for emergencies.
+          </p>
 
           <div *ngIf="commandError" class="alert alert-danger py-2" role="alert">{{ commandError }}</div>
+          <div *ngIf="calibrationMessage" class="small text-warning mb-2">{{ calibrationMessage }}</div>
+          <div *ngIf="telescopeMetadata" class="small text-muted mb-2">
+            Offset: {{ telescopeMetadata.az_encoder_offset | number:'1.0-2' }}°. Allowed azimuth: {{ azimuthRange }}.
+            <div *ngIf="telescopeMetadata.az_range_temporary">Temporary test range; opposite stop is assumed and still needs measurement.</div>
+            <div *ngIf="telescopeMetadata.az_reference === 'MANUAL_ALIGNMENT'">Reference: MANUAL_ALIGNMENT. AZ is encoder-derived; base levelling and true-north alignment are manual. Absolute accuracy is unverified.</div>
+            <ng-container *ngIf="telescopeMetadata.az_reference !== 'MANUAL_ALIGNMENT'">
+              <div *ngIf="telescopeMetadata.az_alignment_verified !== true" class="text-warning">Uncalibrated heading estimate — accuracy unverified.</div>
+              <div *ngIf="telescopeMetadata.mag_declination_supported === false" class="text-warning">Declination is unavailable for the configured location or date.</div>
+            </ng-container>
+          </div>
 
           <div *ngIf="isPointing">
             <div class="row mt-2">
@@ -92,11 +118,6 @@
                   max="360"
                   placeholder="0 - 360"
                 >
-                <div *ngIf="telescopeMetadata" class="small text-muted mt-1">
-                  Allowed azimuth: {{ azimuthRange }}.
-                  <div *ngIf="telescopeMetadata.az_range_temporary">Temporary test range; opposite stop is assumed and still needs measurement.</div>
-                </div>
-                <div *ngIf="calibrationMessage" class="small text-warning mt-1">{{ calibrationMessage }}</div>
               </div>
               <div class="col">
                 <label class="form-label">Elevation Angle (0° - 90°)</label>
@@ -113,7 +134,6 @@
             <div class="text-center">
               <small class="text-muted">Azimuth wraps around horizon, Elevation is vertical angle from ground</small>
             </div>
-            <button class="btn btn-primary mt-2" (click)="startPointing()">Point</button>
           </div>
 
           <div *ngIf="!isPointing" class="mt-2">
@@ -149,9 +169,23 @@
             </div>
 
             <div *ngIf="selectedSource" class="mt-2">
-              <small class="text-muted">Selected: {{ selectedSource.name }}</small><br>
-              <button class="btn btn-primary mt-1" (click)="startTracking()">Track</button>
+              <small class="text-muted">Selected: {{ selectedSource.name }}</small>
             </div>
+          </div>
+
+          <div class="d-flex justify-content-between align-items-center gap-2 mt-3">
+            <div>
+              <button *ngIf="isPointing" class="btn btn-primary" (click)="startPointing()" [disabled]="isLoading || isStopping">
+                <i class="fa-solid fa-crosshairs me-1" aria-hidden="true"></i>Send Point
+              </button>
+              <button *ngIf="!isPointing && selectedSource" class="btn btn-primary" (click)="startTracking()" [disabled]="isLoading || isStopping">
+                <i class="fa-solid fa-satellite-dish me-1" aria-hidden="true"></i>Send Track
+              </button>
+            </div>
+            <button type="button" class="btn btn-danger" (click)="stopMovement()" [disabled]="!canStopMovement()">
+              <i class="fa-solid fa-stop me-1" aria-hidden="true"></i>
+              {{ isStopping ? 'Sending hold...' : 'Stop / hold position' }}
+            </button>
           </div>
         </div>
       </div>
@@ -199,6 +233,7 @@
           </div>
 
           <button class="btn btn-primary mb-3" (click)="loadGraph()" [disabled]="isGraphLoading">
+            <i class="fa-solid fa-chart-line me-1" aria-hidden="true"></i>
             {{ isGraphLoading ? 'Loading...' : 'Load graph' }}
           </button>
 
@@ -208,9 +243,22 @@
             [options]="chartOptions"
             [styles]="{ width: '100%', height: '360px' }"
           ></canvasjs-chart>
+          <details *ngIf="historicalReadings.length > 0" class="history-diagnostics mt-3">
+            <summary class="text-primary">Show more: reading diagnostics</summary>
+            <div *ngFor="let reading of historicalReadings" class="border-bottom py-2">
+              <div class="small">Reading #{{ reading.id }} — {{ reading.created_at | date:'medium' }} — <span [ngClass]="getHealthStatusClass(reading.health_status)">{{ reading.health_status }}</span></div>
+              <pre class="small mb-0" style="white-space: pre-wrap; overflow-wrap: anywhere;">{{ reading.serial_log || 'No diagnostics recorded for this reading.' }}</pre>
+            </div>
+          </details>
         </div>
       </div>
     </div>
+  </div>
+
+  <div class="text-center mb-3">
+    <button type="button" class="btn btn-outline-secondary" (click)="scrollToTop()">
+      <i class="fa-solid fa-arrow-up me-1" aria-hidden="true"></i>Back to top
+    </button>
   </div>
 
 </div>

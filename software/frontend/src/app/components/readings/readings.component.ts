@@ -69,4 +69,12 @@ export class ReadingsComponent implements OnInit {
     }
     return telescopeName;
   }
+
+  getHealthStatusClass(healthStatus: string): string {
+    const status: string = (healthStatus || '').toUpperCase();
+    if (status === 'FAULT' || status === 'ERROR') return 'text-danger';
+    if (status === 'DEGRADED' || status === 'WARNING') return 'text-warning';
+    if (status === 'OK' || status === 'NOMINAL') return 'text-success';
+    return 'text-secondary';
+  }
 }

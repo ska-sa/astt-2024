@@ -3,17 +3,18 @@
     <tr>
       <th scope="col">ID</th>
       <th scope="col">Telescope Name</th>
-      <th scope="col">Heath Status</th>
+      <th scope="col">Health Status</th>
       <th scope="col">Movement Status</th>
       <th scope="col">Azimuth Angle</th>
       <th scope="col">Elevation Angle</th>
       <th scope="col">Created At</th>
+      <th scope="col">Diagnostics</th>
     </tr>
   </thead>
   <tbody>
     <ng-container *ngIf="isLoading">
       <tr>
-        <td colspan="7">
+        <td colspan="8">
           Loading...
         </td>
       </tr>
@@ -21,7 +22,7 @@
     <ng-container *ngIf="!isLoading">
       <ng-container *ngIf="readings.length == 0">
         <tr class="text-center">
-          <td colspan="7">
+          <td colspan="8">
             No Data
           </td>
         </tr>
@@ -29,11 +30,17 @@
       <tr *ngFor="let reading of readings; let index = index;">
         <th scope="row">{{ index }}</th>
         <td> {{ getTelescopeNameById(reading.telescope_id) }}</td>
-        <td class="text-success">{{ reading.health_status }}</td>
-        <td class="text-danger">{{ reading.movement_status ? "Moving" : "Stopped" }}</td>
+        <td [ngClass]="getHealthStatusClass(reading.health_status)">{{ reading.health_status || 'Unknown' }}</td>
+        <td>{{ reading.movement_status || 'Unknown' }}</td>
         <td>{{ reading.azimuth_angle }} &deg;</td>
         <td>{{ reading.elevation_angle }} &deg;</td>
         <td>{{ reading.created_at }}</td>
+        <td>
+          <details>
+            <summary class="text-primary">Show more</summary>
+            <pre class="small text-start mb-0" style="white-space: pre-wrap; overflow-wrap: anywhere;">{{ reading.serial_log || 'No diagnostics recorded for this reading.' }}</pre>
+          </details>
+        </td>
       </tr>
     </ng-container>
   </tbody>

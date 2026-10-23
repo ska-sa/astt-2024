@@ -47,7 +47,8 @@ class Database:
             `magnetic_field_z` DOUBLE,
             `health_status` VARCHAR(50),
             `movement_status` VARCHAR(50),
-            `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP
+            `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+            `serial_log` TEXT DEFAULT NULL
         );
 
         CREATE TABLE IF NOT EXISTS position(
@@ -92,6 +93,7 @@ class Database:
         );
     """)
         self.migrate_telescope_table()
+        self.migrate_reading_table()
         self.migrate_command_table()
         self.migrate_source_table()
         self.conn.commit()
@@ -101,6 +103,12 @@ class Database:
         columns = self.cur.execute("PRAGMA table_info(telescope)").fetchall()
         if "metadata" not in [column[1] for column in columns]:
             self.cur.execute("ALTER TABLE telescope ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}'")
+
+    def migrate_reading_table(self) -> None:
+        """Add optional diagnostics while retaining every existing reading."""
+        columns = self.cur.execute("PRAGMA table_info(reading)").fetchall()
+        if "serial_log" not in [column[1] for column in columns]:
+            self.cur.execute("ALTER TABLE reading ADD COLUMN serial_log TEXT DEFAULT NULL")
 
     def migrate_command_table(self) -> None:
         columns = self.cur.execute("PRAGMA table_info(command)").fetchall()

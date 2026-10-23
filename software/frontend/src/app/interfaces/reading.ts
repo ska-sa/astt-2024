@@ -20,4 +20,5 @@ export interface Reading {
     magnetic_field_z: number;
     health_status: string;
     movement_status: string;
+    serial_log?: string | null;
 }

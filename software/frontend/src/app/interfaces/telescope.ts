@@ -3,6 +3,9 @@ export interface TelescopeMetadata {
     az_encoder_max: number;
     az_encoder_offset: number;
     az_range_temporary?: boolean;
+    az_reference?: string;
+    az_alignment_verified?: boolean;
+    mag_declination_supported?: boolean;
 }
 
 export interface Telescope {

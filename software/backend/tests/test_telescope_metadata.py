@@ -188,6 +188,186 @@ class TelescopeMetadataTests(unittest.TestCase):
             self.assertIn('137.8° to 37.8° through 0°', error.exception.detail)
         self.assertEqual(get_commands(), [])
 
+    def test_stale_calibration_state_does_not_block_numeric_point_targets(self) -> None:
+        """Readiness belongs to firmware; API validation checks the raw target arc."""
+        telescope = self.create_configured_telescope()
+        ready = {
+            'az_reference': 'true_north_estimate',
+            'az_calibration_valid': True,
+            'az_encoder_mapping_verified': True
+        }
+        states = (
+            {'az_reference': 'true_north_estimate'},
+            {'az_calibration_valid': True},
+            {'az_encoder_mapping_verified': True},
+            {**ready, 'az_reference': 'encoder'},
+            {**ready, 'az_calibration_valid': False},
+            {**ready, 'az_encoder_mapping_verified': False},
+            {**ready, 'az_calibration_valid': 1},
+            {**ready, 'az_encoder_mapping_verified': 'true'},
+            {**ready, 'az_reference': None}
+        )
+        original_metadata = dict(telescope.metadata)
+        for state in states:
+            telescope.metadata = {**original_metadata, **state}
+            update_telescope(telescope.id, telescope)
+            with self.subTest(state=state):
+                command = post_command(self.point_command(telescope.id, 170.0))
+                self.assertEqual(command.point.target_az_angle, 170.0)
+        self.assertEqual(len(get_commands()), len(states))
+
+    def test_ready_calibration_accepts_unverified_alignment_warning(self) -> None:
+        """Alignment remains an independent warning rather than a new gate."""
+        telescope = self.create_configured_telescope()
+        telescope.metadata.update({
+            'az_reference': 'true_north_estimate',
+            'az_calibration_valid': True,
+            'az_encoder_mapping_verified': True,
+            'az_alignment_verified': False
+        })
+        update_telescope(telescope.id, telescope)
+        command = post_command(self.point_command(telescope.id, 170.0))
+        self.assertEqual(command.point.target_az_angle, 170.0)
+        self.assertEqual(get_telescope(telescope.id).metadata, telescope.metadata)
+
+    def test_point_update_ignores_stale_calibration_readiness(self) -> None:
+        """A stale status flag cannot prevent a numerically valid Point update."""
+        telescope = self.create_configured_telescope()
+        command = post_command(self.point_command(telescope.id, 170.0))
+        telescope.metadata['az_calibration_valid'] = False
+        update_telescope(telescope.id, telescope)
+        command.point.target_az_angle = 190.0
+        self.assertEqual(update_command(command.id, command).point.target_az_angle, 190.0)
+        self.assertEqual(get_commands()[0].point.target_az_angle, 190.0)
+
+    def test_true_north_is_rejected_when_it_maps_into_the_raw_gap(self) -> None:
+        """True zero must not override raw mechanical restrictions at any offset."""
+        telescope = self.create_configured_telescope()
+        telescope.metadata.update({
+            'az_encoder_max': 37.8,
+            'az_reference': 'true_north_estimate',
+            'az_calibration_valid': True,
+            'az_encoder_mapping_verified': True
+        })
+        for offset in (260.0, 300.0):
+            telescope.metadata['az_encoder_offset'] = offset
+            update_telescope(telescope.id, telescope)
+            for target in (0.0, 360.0):
+                with self.subTest(offset=offset, target=target):
+                    with self.assertRaises(HTTPException) as error:
+                        post_command(self.point_command(telescope.id, target))
+                    self.assertEqual(error.exception.status_code, 400)
+                    self.assertIn('outside the allowed range', error.exception.detail)
+            self.assertEqual(post_command(self.point_command(telescope.id, 150.0)).point.target_az_angle, 150.0)
+        self.assertEqual(len(get_commands()), 2)
+
+    def test_true_north_is_allowed_when_it_maps_inside_the_wrapped_raw_arc(self) -> None:
+        """Apply the offset once and retain wrap-through-zero targets."""
+        telescope = self.create_configured_telescope()
+        telescope.metadata.update({
+            'az_encoder_max': 37.8,
+            'az_encoder_offset': 49.7,
+            'az_reference': 'true_north_estimate',
+            'az_calibration_valid': True,
+            'az_encoder_mapping_verified': True
+        })
+        update_telescope(telescope.id, telescope)
+        for target in (0.0, 360.0, 187.5, 87.5):
+            with self.subTest(target=target):
+                self.assertEqual(post_command(self.point_command(telescope.id, target)).point.target_az_angle, target)
+
+    def test_explicit_compass_test_mode_allows_reachable_point(self) -> None:
+        """Temporary estimates permit testing without claiming real calibration."""
+        telescope = self.create_configured_telescope()
+        telescope.metadata.update({
+            'az_reference': 'compass_test_estimate',
+            'az_compass_test_mode': True,
+            'mag_declination_supported': True,
+            'az_calibration_valid': False,
+            'az_encoder_mapping_verified': False,
+            'az_alignment_verified': False
+        })
+        update_telescope(telescope.id, telescope)
+        command = post_command(self.point_command(telescope.id, 170.0))
+        self.assertEqual(command.point.target_az_angle, 170.0)
+        command.point.target_az_angle = 190.0
+        self.assertEqual(update_command(command.id, command).point.target_az_angle, 190.0)
+        self.assertEqual(get_telescope(telescope.id).metadata, telescope.metadata)
+
+    def test_stale_test_mode_state_does_not_block_numeric_point_targets(self) -> None:
+        """Old mode/status metadata must not become an API readiness gate."""
+        telescope = self.create_configured_telescope()
+        test_state = {
+            'az_reference': 'compass_test_estimate',
+            'az_compass_test_mode': True,
+            'mag_declination_supported': True
+        }
+        states = (
+            {'az_compass_test_mode': True},
+            {'az_reference': 'compass_test_estimate'},
+            {'mag_declination_supported': True},
+            {**test_state, 'az_reference': 'encoder'},
+            {**test_state, 'az_reference': 'true_north_estimate'},
+            {**test_state, 'az_compass_test_mode': False},
+            {**test_state, 'az_compass_test_mode': 1},
+            {**test_state, 'az_compass_test_mode': 'true'},
+            {**test_state, 'az_compass_test_mode': None},
+            {**test_state, 'mag_declination_supported': False},
+            {**test_state, 'mag_declination_supported': 1},
+            {**test_state, 'mag_declination_supported': None},
+            {'az_reference': 'compass_test_estimate', 'az_compass_test_mode': True}
+        )
+        original_metadata = dict(telescope.metadata)
+        for state in states:
+            telescope.metadata = {**original_metadata, **state}
+            update_telescope(telescope.id, telescope)
+            with self.subTest(state=state):
+                command = post_command(self.point_command(telescope.id, 170.0))
+                self.assertEqual(command.point.target_az_angle, 170.0)
+        self.assertEqual(len(get_commands()), len(states))
+
+    def test_compass_test_mode_keeps_raw_limits_and_zero_blocking(self) -> None:
+        """Temporary references cannot override unreachable raw targets."""
+        telescope = self.create_configured_telescope()
+        telescope.metadata.update({
+            'az_encoder_max': 37.8,
+            'az_encoder_offset': 260.0,
+            'az_reference': 'compass_test_estimate',
+            'az_compass_test_mode': True,
+            'mag_declination_supported': True,
+            'az_calibration_valid': False,
+            'az_encoder_mapping_verified': False
+        })
+        update_telescope(telescope.id, telescope)
+        command = post_command(self.point_command(telescope.id, 150.0))
+        for target in (0.0, 360.0):
+            with self.subTest(target=target):
+                with self.assertRaises(HTTPException) as error:
+                    post_command(self.point_command(telescope.id, target))
+                self.assertEqual(error.exception.status_code, 400)
+                self.assertIn('outside the allowed range', error.exception.detail)
+        command.point.target_az_angle = 0.0
+        with self.assertRaises(HTTPException):
+            update_command(command.id, command)
+        self.assertEqual(len(get_commands()), 1)
+        self.assertEqual(get_commands()[0].point.target_az_angle, 150.0)
+
+    def test_point_update_ignores_stale_declination_support_flag(self) -> None:
+        """Firmware date status does not replace numeric API limit validation."""
+        telescope = self.create_configured_telescope()
+        telescope.metadata.update({
+            'az_reference': 'compass_test_estimate',
+            'az_compass_test_mode': True,
+            'mag_declination_supported': True
+        })
+        update_telescope(telescope.id, telescope)
+        command = post_command(self.point_command(telescope.id, 170.0))
+        telescope.metadata['mag_declination_supported'] = False
+        update_telescope(telescope.id, telescope)
+        command.point.target_az_angle = 190.0
+        self.assertEqual(update_command(command.id, command).point.target_az_angle, 190.0)
+        self.assertEqual(get_commands()[0].point.target_az_angle, 190.0)
+
 
 if __name__ == '__main__':
     unittest.main()

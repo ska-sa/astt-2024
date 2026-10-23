@@ -1,10 +1,13 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnInit } from '@angular/core';
+import { Component, OnDestroy, OnInit } from '@angular/core';
 import { Router, RouterOutlet } from '@angular/router';
 import { Telescope } from '../../interfaces/telescope';
 import { FormsModule } from '@angular/forms';
 import { TelescopeService } from '../../services/telescope.service';
 import { CreateTelescope } from '../../interfaces/create-telescope';
+import { Reading } from '../../interfaces/reading';
+import { ReadingService } from '../../services/reading.service';
+import { finalize, interval, Subscription } from 'rxjs';
 
 @Component({
   selector: 'app-telescopes',
@@ -16,24 +19,34 @@ import { CreateTelescope } from '../../interfaces/create-telescope';
   templateUrl: './telescopes.component.html',
   styleUrl: './telescopes.component.css'
 })
-export class TelescopesComponent implements OnInit{
+export class TelescopesComponent implements OnInit, OnDestroy {
+  private readonly requests: Subscription = new Subscription();
+  private readonly pendingReadingIds: Set<number> = new Set();
+  private readonly readingErrors: Set<number> = new Set();
   isLoading: boolean = true;
   telescopes: Telescope[] = [];
+  latestReadings: { [id: number]: Reading | undefined } = {};
 
   newTelescopeName: string = "";
 
-  constructor(private router: Router, private telescopeService: TelescopeService) {}
+  constructor(private router: Router, private telescopeService: TelescopeService, private readingService: ReadingService) {}
 
   ngOnInit(): void {
     this.isLoading = true;
     this.loadTelescopes();
+    this.requests.add(interval(1000).subscribe(() => this.loadLatestReadings()));
     return;
+  }
+
+  ngOnDestroy(): void {
+    this.requests.unsubscribe();
   }
 
   loadTelescopes(): void {
     this.telescopeService.getTelescopes().subscribe({
       next: (telescopes: Telescope[]) => {
         this.telescopes = telescopes;
+        this.loadLatestReadings();
         console.log(`Telescopes: ${telescopes}`);
         this.isLoading = false;
       },
@@ -43,6 +56,54 @@ export class TelescopesComponent implements OnInit{
       }
     });
    return;
+  }
+
+  loadLatestReadings(): void {
+    if (this.requests.closed) return;
+    for (const telescope of this.telescopes) {
+      const telescopeId: number = telescope.id;
+      if (this.pendingReadingIds.has(telescopeId)) continue;
+      this.pendingReadingIds.add(telescopeId);
+      this.requests.add(this.readingService.getLatestReading(telescopeId).pipe(
+        finalize(() => this.pendingReadingIds.delete(telescopeId))
+      ).subscribe({
+        next: (reading: Reading) => {
+          if (!this.telescopes.some((device: Telescope) => device.id === telescopeId)) return;
+          if (reading.telescope_id !== telescopeId) {
+            this.readingErrors.add(telescopeId);
+            return;
+          }
+          this.latestReadings[telescopeId] = reading;
+          this.readingErrors.delete(telescopeId);
+        },
+        error: () => this.readingErrors.add(telescopeId)
+      }));
+    }
+  }
+
+  getLastActiveAt(telescopeId: number): Date | null {
+    const createdAt: string | null | undefined = this.latestReadings[telescopeId]?.created_at;
+    if (!createdAt) return null;
+    const timestamp: string = createdAt.replace(' ', 'T');
+    // SQLite timestamps without a timezone are UTC, as on the CAM page.
+    const hasTimezone: boolean = /(?:Z|[+-]\d{2}:\d{2})$/i.test(timestamp);
+    const date: Date = new Date(hasTimezone ? timestamp : `${timestamp}Z`);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  isDeviceOnline(telescopeId: number): boolean {
+    const lastActive: Date | null = this.getLastActiveAt(telescopeId);
+    if (!lastActive || this.readingErrors.has(telescopeId)) return false;
+    const age: number = Date.now() - lastActive.getTime();
+    return age >= 0 && age <= 10000;
+  }
+
+  getHealthStatusClass(telescopeId: number): string {
+    const status: string = (this.latestReadings[telescopeId]?.health_status || '').toUpperCase();
+    if (status === 'FAULT' || status === 'ERROR') return 'text-danger';
+    if (status === 'DEGRADED' || status === 'WARNING') return 'text-warning';
+    if (status === 'OK' || status === 'NOMINAL') return 'text-success';
+    return 'text-secondary';
   }
 
   addTelescope(): void {
@@ -65,6 +126,7 @@ export class TelescopesComponent implements OnInit{
       next: (telescope: Telescope) => {
         console.log(`Telescope added: ${telescope}`); 
         this.telescopes.push(telescope);
+        this.loadLatestReadings();
         this.isLoading = false;
       },
       error: (err: Error) => {
@@ -119,6 +181,8 @@ export class TelescopesComponent implements OnInit{
         next: () => {
           console.log(`Telescope deleted: ${telescopeName}`);
           this.telescopes = this.telescopes.filter(telescope => telescope.id !== telescopeToDelete.id);
+          delete this.latestReadings[telescopeToDelete.id];
+          this.readingErrors.delete(telescopeToDelete.id);
           this.isLoading = false;
         },
         error: (err: Error) => {

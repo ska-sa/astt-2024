@@ -32,10 +32,13 @@
             </td>
           </tr>
         </ng-container>
-        <tr class="align-middle" *ngFor="let telescope of telescopes; let i = index">
+        <tr class="align-middle" *ngFor="let telescope of telescopes; let i = index" [class.table-secondary]="!isDeviceOnline(telescope.id)">
           <th> {{ i + 1 }}</th>
           <td> {{ telescope.name }} </td>
-          <td> {{ telescope.health_status }} </td>
+          <td>
+            <span [ngClass]="getHealthStatusClass(telescope.id)">{{ latestReadings[telescope.id]?.health_status || 'Unknown' }}</span>
+            <div class="small text-muted">Last seen: {{ (getLastActiveAt(telescope.id) | date:'medium') || 'Not available' }}</div>
+          </td>
           <td> {{ telescope.created_at | date }}</td>
           <td class="text-end">
             <button class="btn btn-sm btn-outline-primary m-1" (click)="controlTelescope(telescope.id)">

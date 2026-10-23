@@ -1,3 +1,5 @@
+"""Existing reading CRUD and history routes, including optional diagnostics."""
+
 from fastapi import HTTPException
 from classes.reading import CreateReading, Reading
 from datetime import datetime
@@ -7,6 +9,7 @@ table_name: str = "reading"
 
 
 def get_reading(reading_id: int) -> Reading:
+    """Return one persisted sample with its optional firmware log."""
     db = Database()
     _, db_select_reading_outputs = db.read(table_name, criteria={"id": reading_id})
     if db_select_reading_outputs:
@@ -30,6 +33,7 @@ def get_reading(reading_id: int) -> Reading:
             health_status,
             movement_status,
             created_at,
+            serial_log,
         ) = db_select_reading_outputs[0]
         return Reading(
             id=id,
@@ -51,12 +55,14 @@ def get_reading(reading_id: int) -> Reading:
             health_status=health_status,
             movement_status=movement_status,
             created_at=datetime.fromisoformat(str(created_at)),
+            serial_log=serial_log,
         )
     else:
         return None
 
 
 def get_readings() -> list[Reading]:
+    """Return sensor samples and their original diagnostics."""
     db = Database()
     _, db_select_reading_outputs = db.read(table_name)
     readings = []
@@ -81,6 +87,7 @@ def get_readings() -> list[Reading]:
             health_status,
             movement_status,
             created_at,
+            serial_log,
         ) = db_select_reading_output
         
         readings.append(
@@ -104,12 +111,14 @@ def get_readings() -> list[Reading]:
                 health_status=health_status,
                 movement_status=movement_status,
                 created_at=datetime.fromisoformat(str(created_at)),
+                serial_log=serial_log,
             )
         )
     return readings
 
 
 def get_latest_reading(telescope_id: int) -> Reading:
+    """Return the latest sample and diagnostic for a telescope."""
     db = Database()
     _, db_select_reading_outputs = db.read(
         table_name, criteria={"telescope_id": telescope_id}
@@ -135,6 +144,7 @@ def get_latest_reading(telescope_id: int) -> Reading:
             health_status,
             movement_status,
             created_at,
+            serial_log,
         ) = db_select_reading_outputs[-1]
         return Reading(
             id=id,
@@ -156,6 +166,7 @@ def get_latest_reading(telescope_id: int) -> Reading:
             health_status=health_status,
             movement_status=movement_status,
             created_at=datetime.fromisoformat(str(created_at)),
+            serial_log=serial_log,
         )
     else:
         raise HTTPException(
@@ -164,6 +175,7 @@ def get_latest_reading(telescope_id: int) -> Reading:
         )
 
 def get_readings_in_range(telescope_id: int, start: str, end: str) -> list[Reading]:
+    """Return dated samples without dropping their firmware diagnostics."""
     db = Database()
     sql = "SELECT * FROM `reading` WHERE `telescope_id` = ? AND `created_at` BETWEEN ? AND ? ORDER BY `created_at` ASC"
     db.cur.execute(sql, (telescope_id, start, end))
@@ -191,6 +203,7 @@ def get_readings_in_range(telescope_id: int, start: str, end: str) -> list[Readi
             health_status,
             movement_status,
             created_at,
+            serial_log,
         ) = db_select_reading_output
 
         readings.append(
@@ -214,14 +227,18 @@ def get_readings_in_range(telescope_id: int, start: str, end: str) -> list[Readi
                 health_status=health_status,
                 movement_status=movement_status,
                 created_at=datetime.fromisoformat(str(created_at)),
+                serial_log=serial_log,
             )
         )
     return readings
 
 def post_reading(reading: CreateReading) -> Reading:
+    """Store a sample; older payloads default to a null diagnostic."""
     db = Database()
-    _, _ = db.insert(table_name, reading.__dict__)
-    _, db_select_reading_outputs = db.read(table_name, criteria=reading.__dict__)
+    success, _ = db.insert(table_name, reading.model_dump())
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to create reading.")
+    _, db_select_reading_outputs = db.read(table_name, criteria={"id": db.cur.lastrowid})
     (
         id,
         telescope_id,
@@ -242,6 +259,7 @@ def post_reading(reading: CreateReading) -> Reading:
         health_status,
         movement_status,
         created_at,
+        serial_log,
     ) = db_select_reading_outputs[-1]
 
     return Reading(
@@ -264,10 +282,12 @@ def post_reading(reading: CreateReading) -> Reading:
         health_status=health_status,
         movement_status=movement_status,
         created_at=datetime.fromisoformat(str(created_at)),
+        serial_log=serial_log,
     )
 
 
 def delete_reading(reading_id: int) -> Reading:
+    """Delete a sample and return its complete previous representation."""
     db = Database()
     _, db_select_reading_outputs = db.read(table_name, criteria={"id": reading_id})
     if db_select_reading_outputs:
@@ -291,6 +311,7 @@ def delete_reading(reading_id: int) -> Reading:
             health_status,
             movement_status,
             created_at,
+            serial_log,
         ) = db_select_reading_outputs[0]
         reading = Reading(
             id=id,
@@ -312,6 +333,7 @@ def delete_reading(reading_id: int) -> Reading:
             health_status=health_status,
             movement_status=movement_status,
             created_at=datetime.fromisoformat(str(created_at)),
+            serial_log=serial_log,
         )
         success, _ = db.delete(table_name, criteria={"id": reading_id})
         if success:
@@ -325,6 +347,7 @@ def delete_reading(reading_id: int) -> Reading:
 
 
 def update_reading(reading_id: int, reading: Reading) -> Reading:
+    """Update a sample, including an explicitly supplied diagnostic."""
     db = Database()
     success, _ = db.update(
         table_name, criteria={"id": reading_id}, data=reading.__dict__
@@ -351,6 +374,7 @@ def update_reading(reading_id: int, reading: Reading) -> Reading:
             health_status,
             movement_status,
             created_at,
+            serial_log,
         ) = db_select_reading_outputs[0]
         return Reading(
             id=id,
@@ -372,6 +396,7 @@ def update_reading(reading_id: int, reading: Reading) -> Reading:
             health_status=health_status,
             movement_status=movement_status,
             created_at=datetime.fromisoformat(str(created_at)),
+            serial_log=serial_log,
         )
     else:
         return None

@@ -2,6 +2,9 @@
 #include <math.h>
 #include <WiFi.h>
 #include <Arduino.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
+#include <freertos/task.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <Adafruit_GPS.h>
@@ -36,12 +39,17 @@ const int ESTOP_PIN = 23;
 // ---------- azimuth control ----------
 const float AZ_MIN = 0.0;
 const float AZ_MAX = 360.0;
-const float AZ_ENCODER_MIN = 137.8;  // reported physical stop in the decreasing direction
-const float AZ_ENCODER_MAX = 37.8;   // assumed opposite stop; allowed travel crosses 360/0
-const float AZ_ENCODER_OFFSET = 0.0; // encoder-only reference for testing
+const float AZ_ENCODER_MIN = 137.8;  // operator-verified decreasing stop
+const float AZ_ENCODER_MAX = 37.8;   // operator-verified increasing stop; arc crosses 360/0
+const float AZ_ENCODER_OFFSET = 0.0; // diagnostic fallback only; zero is not calibrated north
+const bool USE_MANUAL_AZ_REFERENCE = true;
+// Verified clockwise 1:1 mapping. The permitted 260-degree arc midpoint is
+// norm360(137.8 + 260/2) = 267.8, not the arithmetic average of the stops.
+// Manually level and north-align the base at this encoder position before use.
+const float encoderAtNorth = 267.8f;
 const float AZ_TOLERANCE = 1.0;
 const float AZ_RAMP_RANGE = 60.0;
-const int AZ_MIN_PWM = 140;
+const int AZ_MIN_PWM = 210;  // 1.5 times the previous 140; qualify stopping at this power
 const int AZ_MAX_PWM = 255;
 
 
@@ -61,6 +69,12 @@ const int AZ_ENCODER_SAMPLES = 7;        // odd number, we take the median
 const float AZ_ENCODER_SMOOTHING = 0.5;  // 0 is no smoothing, 1 never updates
 float azEncoderAngle = 0.0;
 bool azEncoderReady = false;
+bool azEncoderValid = false;
+float azEncoderOffset = AZ_ENCODER_OFFSET;
+bool azNorthReferenceReady = false;
+bool azHeadingValid = false;
+bool azMotorStopped = true;
+bool elMotorStopped = true;
 
 
 // ---------- command targets ----------
@@ -68,6 +82,11 @@ const unsigned long SOURCE_TIMEOUT = 10000;
 float apiAzTarget = -1.0;
 float apiElTarget = -1.0;
 unsigned long lastApiTime = 0;
+int startupCommandId = 0;
+int lastCommandId = 0;
+bool commandBaselineReady = false;
+bool azPointActive = false;
+bool azPointComplete = false;
 
 
 // ---------- tracking ----------
@@ -87,6 +106,30 @@ const unsigned long POST_INTERVAL = 5000;
 const unsigned long POLL_INTERVAL = 2000;
 unsigned long lastPostTime = 0;
 unsigned long lastPollTime = 0;
+unsigned long lastDiagnosticTime = 0;
+
+// HTTP runs separately; only loop() owns sensors, commands and motor outputs.
+enum class NetworkOperation : uint8_t { Command, Reading, Reference };
+const size_t NETWORK_BODY_SIZE = 3072;
+struct NetworkRequest {
+  NetworkOperation operation;
+  unsigned long createdAt;
+  uint32_t generation;
+  char body[NETWORK_BODY_SIZE];
+};
+struct NetworkReply {
+  NetworkOperation operation;
+  unsigned long createdAt;
+  uint32_t generation;
+  int status;
+  char body[NETWORK_BODY_SIZE];
+};
+QueueHandle_t networkRequests = nullptr;
+QueueHandle_t networkReplies = nullptr;
+bool networkReady = false;
+bool networkInFlight = false;
+bool metadataPending = true;
+uint32_t networkGeneration = 0;
 
 
 // ---------- readings sent to backend ----------
@@ -98,6 +141,11 @@ float longitude = 18.478685;
 float altitude = 50.0;
 String healthStatus = "OK";
 String movementStatus = "IDLE";
+String serialLog = "";
+String commandMessage = "BOOT";
+int lastCommandHttp = 0;
+int lastReadingHttp = 0;
+int lastMetadataHttp = 0;
 
 
 // ---------- level antenna sensors ----------
@@ -107,6 +155,9 @@ const int I2C_SCL = 22;
 Adafruit_GPS GPS(&Wire);
 SFE_MMC5983MA myMag;
 bool magOk = false;
+bool magneticSampleValid = false;
+unsigned long magLastAttempt = 0;
+unsigned long magInitializedAt = 0;
 
 const uint8_t MPU_ADDR = 0x68;
 const uint8_t EL_MPU_ADDR = 0x69;
@@ -126,20 +177,15 @@ float magneticFieldX = 0.0;
 float magneticFieldY = 0.0;
 float magneticFieldZ = 0.0;
 
-float magneticDeclination = -25.6;
-float headingOffset = 90.0;
-float DEFAULT_HEADING = 0.0;   // used when magnetometer is absent or not yet calibrated
-const float MAG_MIN_CALIBRATION_SPAN = 5000.0;
-float trueHeading = DEFAULT_HEADING;
+// Canonical heading is atan2(Y, X); the user selected 0 degrees for dish-forward.
+// Confirm against an independent heading before marking the mounting verified.
+const float MAG_MOUNTING_OFFSET_DEG = 0.0;
+// Keep the compass physically level; installed magnetic calibration is deferred.
+float magneticHeading = NAN;
+float declination = NAN;
+float trueHeading = 0.0;
 float levelRoll = 0.0;
 float levelPitch = 0.0;
-
-bool calibrated = false;
-unsigned long calibStartTime = 0;
-uint32_t minX = 4294967295, minY = 4294967295;
-uint32_t maxX = 0, maxY = 0;
-float offX = 0, offY = 0, offZ = 0;
-float scaleX = 1, scaleY = 1, scaleZ = 1;
 
 bool readMpuValues(uint8_t address, float &accelX, float &accelY, float &accelZ,
                    float &gyroX, float &gyroY, float &gyroZ) {
@@ -249,12 +295,51 @@ float signedAngleDifference(float from, float to) {
 
 
 float encoderToTrueAzimuth(float encoderAngle) {
-  return norm360(encoderAngle + AZ_ENCODER_OFFSET);
+  return norm360(encoderAngle + azEncoderOffset);
 }
 
 
 float trueAzimuthToEncoder(float trueAzimuth) {
-  return norm360(trueAzimuth - AZ_ENCODER_OFFSET);
+  return norm360(trueAzimuth - azEncoderOffset);
+}
+
+
+
+
+
+// Manual reference is a recorded mechanical position, never the current boot angle.
+bool setAzimuthReference(float encoderAngle, float heading) {
+  if (!azEncoderReady || !azEncoderValid
+      || !azMotorStopped || !elMotorStopped || azPointActive || isTracking
+      || !isfinite(encoderAngle)) return false;
+  if (USE_MANUAL_AZ_REFERENCE) {
+    if (!isfinite(encoderAtNorth) || encoderAtNorth < 0 || encoderAtNorth >= 360) return false;
+    azEncoderOffset = norm360(-encoderAtNorth);
+  } else {
+    if (!azHeadingValid || !isfinite(heading)) return false;
+    azEncoderOffset = norm360(heading - encoderAngle);
+  }
+  azNorthReferenceReady = true;
+  return true;
+}
+
+
+// Manual Point needs encoder feedback, not a compass or declination date.
+bool checkAzimuthFeedback() {
+  if (!azEncoderReady || !azEncoderValid) commandMessage = "AZ_ENCODER_INVALID";
+  else if (USE_MANUAL_AZ_REFERENCE) {
+    if (!azNorthReferenceReady) setAzimuthReference(azEncoderAngle, trueHeading);
+    if (azNorthReferenceReady) return true;
+    commandMessage = "MANUAL_REFERENCE_UNAVAILABLE";
+  }
+  else if (!isfinite(declination)) commandMessage = "DECLINATION_DATE_UNSUPPORTED_OR_UNSYNCED";
+  else if (!azHeadingValid) commandMessage = "MAGNETOMETER_INVALID";
+  else {
+    if (!azNorthReferenceReady) setAzimuthReference(azEncoderAngle, trueHeading);
+    if (azNorthReferenceReady) return true;
+    commandMessage = "AZ_REFERENCE_UNAVAILABLE";
+  }
+  return false;
 }
 
 
@@ -287,6 +372,7 @@ int chooseDirection(float current, float target) {
 // read the pwm duty cycle and turn it into an angle.
 // takes the median of several samples so one bad pulse cannot move the value.
 float readAzEncoderAngle() {
+  azEncoderValid = false;
   float samples[AZ_ENCODER_SAMPLES];
   int valid = 0;
 
@@ -294,13 +380,14 @@ float readAzEncoderAngle() {
   for (int i = 0; i < AZ_ENCODER_SAMPLES; i++) {
     unsigned long hi = pulseIn(AZ_ENCODER_PIN, HIGH, 25000);
     unsigned long lo = pulseIn(AZ_ENCODER_PIN, LOW, 25000);
-    if (hi + lo == 0) continue;
+    if (hi == 0 || lo == 0) continue;
     samples[valid] = ((float)hi / (float)(hi + lo)) * 360.0;
     valid++;
   }
 
 
   if (valid == 0) return azEncoderAngle;
+  azEncoderValid = true;
 
 
   // sort so we can pick the middle value
@@ -330,63 +417,89 @@ float readAzEncoderAngle() {
 
 // ================= magnetometer =================
 
-// returns a tilt-compensated true heading in degrees.
-// Diagnostic only: magnetometer headings do not change the movement reference.
-float computeTrueHeading() {
+// Research fit: (-33.944440, 18.479819), altitude 6 m, compared with WMM for 2026-2027.
+float magneticDeclination(float year) {
+  if (!isfinite(year) || year < 2026.0f || year >= 2028.0f) return NAN;
+  const float t = year - 2026.0f;
+  return (7.015377035040e-04f * t + (-2.339418355340e-01f)) * t + (-2.667043477086e+01f);
+}
+
+
+float currentDecimalYear() {
+  time_t nowUtc = time(nullptr);
+  struct tm utc;
+  if (nowUtc < 1700000000 || gmtime_r(&nowUtc, &utc) == nullptr) return NAN;
+
+  int year = utc.tm_year + 1900;
+  // No unsynchronised date or extrapolation beyond the research comparison window.
+  if (year < 2026 || year >= 2028) return NAN;
+  bool leapYear = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+  float days = utc.tm_yday
+               + (utc.tm_hour * 3600.0f + utc.tm_min * 60.0f + utc.tm_sec) / 86400.0f;
+  return year + days / (leapYear ? 366.0f : 365.0f);
+}
+
+
+// Working standalone compass setup, on the existing shared Wire bus.
+bool initializeMagnetometer() {
+  if (!myMag.begin(Wire) || !myMag.softReset()
+      || !myMag.enableAutomaticSetReset()
+      || !myMag.setFilterBandwidth(100)
+      || !myMag.setContinuousModeFrequency(20)) return false;
+  return myMag.enableContinuousMode();
+}
+
+
+bool ensureMagnetometerReady() {
   if (!magOk) {
-    magOk = myMag.begin();
-    if (magOk) myMag.softReset();
-    else return trueHeading;
+    if (millis() - magLastAttempt < 1000) return false;
+    magLastAttempt = millis();
+    magOk = initializeMagnetometer();
+    if (!magOk) return false;
+    magInitializedAt = millis();
   }
+  return millis() - magInitializedAt >= 100;
+}
+
+
+// Raw Tesla telemetry and factory-centered compass counts; no calibration fit.
+bool readMagneticField(float raw[3]) {
+  magneticSampleValid = false;
+  if (!ensureMagnetometerReady()) return false;
 
   uint32_t rawX, rawY, rawZ;
-  myMag.getMeasurementXYZ(&rawX, &rawY, &rawZ);
-  // MMC5983 output is unsigned 18-bit counts centered at 131072.
-  // 0.00625 mG/LSB = 6.25e-10 T/LSB.
-  magneticFieldX = ((float)rawX - 131072.0f) * 6.25e-10f;
-  magneticFieldY = ((float)rawY - 131072.0f) * 6.25e-10f;
-  magneticFieldZ = ((float)rawZ - 131072.0f) * 6.25e-10f;
-
-  if (!calibrated) {
-    if (rawX < minX) minX = rawX;
-    if (rawY < minY) minY = rawY;
-    if (rawX > maxX) maxX = rawX;
-    if (rawY > maxY) maxY = rawY;
-
-    if (millis() - calibStartTime > 20000) {
-      float spanX = (float)(maxX - minX);
-      float spanY = (float)(maxY - minY);
-      if (spanX >= MAG_MIN_CALIBRATION_SPAN && spanY >= MAG_MIN_CALIBRATION_SPAN) {
-        offX = (maxX + minX) / 2.0;
-        offY = (maxY + minY) / 2.0;
-        offZ = 131072.0;
-        scaleX = spanX / 2.0;
-        scaleY = spanY / 2.0;
-        scaleZ = (scaleX + scaleY) / 2.0;
-        calibrated = true;
-        Serial.println("mag calibrated; true-north reference available");
-      }
-    }
-    return trueHeading;
+  if (!myMag.readFieldsXYZ(&rawX, &rawY, &rawZ)) {
+    if (!myMag.isConnected()) magOk = false;
+    return false;
   }
+  if (rawX == 0 || rawX >= 262143 || rawY == 0 || rawY >= 262143
+      || rawZ == 0 || rawZ >= 262143) return false;
+  // MMC5983 output is unsigned 18-bit counts centered at 131072.
+  // Working sketch sensitivity: 16384 counts/gauss; 1 gauss = 1e-4 Tesla.
+  const float teslaPerCount = 1.0e-4f / 16384.0f;
+  magneticFieldX = ((float)rawX - 131072.0f) * teslaPerCount;
+  magneticFieldY = ((float)rawY - 131072.0f) * teslaPerCount;
+  magneticFieldZ = ((float)rawZ - 131072.0f) * teslaPerCount;
+  raw[0] = (float)rawX - 131072.0f;
+  raw[1] = (float)rawY - 131072.0f;
+  raw[2] = (float)rawZ - 131072.0f;
+  magneticSampleValid = true;
+  return true;
+}
 
-  if (!mpuOk) return trueHeading;
 
-  float cx = ((float)rawX - offX) / scaleX;
-  float cy = ((float)rawY - offY) / scaleY;
-  float cz = ((float)rawZ - offZ) / scaleZ;
-
-  // The fixed MPU removes the small roll and pitch left after manual levelling.
-  float roll = levelRoll * PI / 180.0;
-  float pitch = levelPitch * PI / 180.0;
-  float horizontalX = cx * cos(pitch) + cz * sin(pitch);
-  float horizontalY = cx * sin(roll) * sin(pitch)
-                      + cy * cos(roll)
-                      - cz * sin(roll) * cos(pitch);
-
-  float heading = norm360(atan2(horizontalX, -horizontalY) * 180.0 / PI
-                          + 180.0 + headingOffset);
-  return norm360(heading + magneticDeclination);
+float computeTrueHeading() {
+  azHeadingValid = false;
+  magneticHeading = NAN;
+  declination = magneticDeclination(currentDecimalYear());
+  float raw[3];
+  if (!readMagneticField(raw)) return trueHeading;
+  if (hypot(raw[0], raw[1]) < 1.0f) return trueHeading;
+  magneticHeading = norm360(atan2(raw[1], raw[0]) * 180.0 / PI + MAG_MOUNTING_OFFSET_DEG);
+  if (!isfinite(declination)) return trueHeading;
+  float heading = norm360(magneticHeading + declination);
+  azHeadingValid = isfinite(heading);
+  return azHeadingValid ? heading : trueHeading;
 }
 
 
@@ -394,6 +507,7 @@ float computeTrueHeading() {
 
 
 void stopAzimuthMotor() {
+  azMotorStopped = true;
   digitalWrite(AZ_IN1, LOW);
   digitalWrite(AZ_IN2, LOW);
   analogWrite(AZ_ENA, 0);
@@ -401,6 +515,7 @@ void stopAzimuthMotor() {
 
 
 void stopElevationMotor() {
+  elMotorStopped = true;
   digitalWrite(EL_IN1, LOW);
   digitalWrite(EL_IN2, LOW);
   analogWrite(EL_ENA, 0);
@@ -408,6 +523,7 @@ void stopElevationMotor() {
 
 
 void driveAzimuthMotor(int pwm, int direction) {
+  azMotorStopped = pwm == 0;
   if (direction > 0) {
     digitalWrite(AZ_IN1, HIGH);
     digitalWrite(AZ_IN2, LOW);
@@ -420,6 +536,7 @@ void driveAzimuthMotor(int pwm, int direction) {
 
 
 void driveElevationMotor(int pwm, int direction) {
+  elMotorStopped = pwm == 0;
   if (direction > 0) {
     digitalWrite(EL_IN1, HIGH);
     digitalWrite(EL_IN2, LOW);
@@ -571,61 +688,181 @@ void syncNTP() {
 }
 
 
-// Publish the firmware's active range so the UI uses the same limits after flashing.
-void publishEncoderCalibration() {
-  static bool calibrationPublished = false;
-  if (calibrationPublished || WiFi.status() != WL_CONNECTED) return;
-
-  String telescopeUrl = String(commandsUrl);
-  telescopeUrl.replace("/commands/", "/telescopes/");
-  telescopeUrl.replace("/latest", "");
-
-  WiFiClient client;
-  HTTPClient http;
-  http.begin(client, telescopeUrl);
-  int responseCode = http.GET();
-  if (responseCode != 200) {
-    Serial.printf("calibration GET failed: %d\n", responseCode);
-    http.end();
-    return;
-  }
-
-  JsonDocument doc;
-  if (deserializeJson(doc, http.getString())) {
-    Serial.println("calibration response could not be read");
-    http.end();
-    return;
-  }
-  http.end();
-
-  doc["metadata"]["az_encoder_min"] = AZ_ENCODER_MIN;
-  doc["metadata"]["az_encoder_max"] = AZ_ENCODER_MAX;
-  doc["metadata"]["az_encoder_offset"] = AZ_ENCODER_OFFSET;
-  doc["metadata"]["az_range_temporary"] = true;
-
-  String payload;
-  serializeJson(doc, payload);
-  http.begin(client, telescopeUrl);
-  http.addHeader("Content-Type", "application/json");
-  responseCode = http.PUT(payload);
-  calibrationPublished = responseCode == 200;
-  Serial.printf("calibration PUT %d: encoder %.1f to %.1f, offset %.1f\n",
-                responseCode, AZ_ENCODER_MIN, AZ_ENCODER_MAX, AZ_ENCODER_OFFSET);
-  http.end();
+// Bound server responses; never interpret truncated commands.
+bool readNetworkBody(HTTPClient &http, char *body, size_t capacity) {
+  // Our JSON API supplies Content-Length; reject unknown/chunked lengths too.
+  if (http.getSize() < 0 || http.getSize() >= (int)capacity) return false;
+  String response = http.getString();
+  if (response.length() >= capacity) return false;
+  response.toCharArray(body, capacity);
+  return true;
 }
 
 
-void postReadings() {
-  if (WiFi.status() != WL_CONNECTED) return;
-  publishEncoderCalibration();
+// Immutable snapshots only: no sensors, target state or motor access in this task.
+void networkWorker(void *unused) {
+  NetworkRequest request;
+  NetworkReply reply;
+  for (;;) {
+    if (xQueueReceive(networkRequests, &request, portMAX_DELAY) != pdTRUE) continue;
+    reply = {};
+    reply.operation = request.operation;
+    reply.createdAt = request.createdAt;
+    reply.generation = request.generation;
+    reply.status = -1;
+    if (WiFi.status() == WL_CONNECTED) {
+      WiFiClient client;
+      HTTPClient http;
+      http.setTimeout(1500);
+      http.setConnectTimeout(1500);
+      if (request.operation == NetworkOperation::Command) {
+        http.begin(client, commandsUrl);
+        reply.status = http.GET();
+        if (reply.status == 200 && !readNetworkBody(http, reply.body, sizeof(reply.body))) reply.status = -3;
+      } else if (request.operation == NetworkOperation::Reading) {
+        http.begin(client, readingsUrl);
+        http.addHeader("Content-Type", "application/json");
+        reply.status = http.POST((uint8_t *)request.body, strlen(request.body));
+      } else {
+        String telescopeUrl = String(commandsUrl);
+        telescopeUrl.replace("/commands/", "/telescopes/");
+        telescopeUrl.replace("/latest", "");
+        http.begin(client, telescopeUrl);
+        reply.status = http.GET();
+        if (reply.status == 200) {
+          JsonDocument telescope;
+          JsonDocument update;
+          if (!readNetworkBody(http, reply.body, sizeof(reply.body))) reply.status = -3;
+          else if (deserializeJson(telescope, reply.body) || deserializeJson(update, request.body)) reply.status = -2;
+          else {
+            JsonObject metadata = telescope["metadata"].as<JsonObject>();
+            if (metadata.isNull()) metadata = telescope["metadata"].to<JsonObject>();
+            metadata.remove("az_calibration_valid");
+            metadata.remove("az_compass_test_mode");
+            metadata.remove("az_encoder_mapping_verified");
+            for (JsonPair entry : update.as<JsonObject>()) metadata[entry.key()] = entry.value();
+            if (measureJson(telescope) >= sizeof(reply.body)) reply.status = -3;
+            else {
+              serializeJson(telescope, reply.body, sizeof(reply.body));
+              http.end();
+              http.begin(client, telescopeUrl);
+              http.addHeader("Content-Type", "application/json");
+              reply.status = http.PUT((uint8_t *)reply.body, strlen(reply.body));
+            }
+          }
+        }
+        reply.body[0] = '\0';
+      }
+      http.end();
+    }
+    // One outstanding request: command replies cannot be overwritten by telemetry.
+    xQueueSend(networkReplies, &reply, portMAX_DELAY);
+  }
+}
 
 
-  WiFiClient client;
-  HTTPClient http;
-  http.begin(client, readingsUrl);
-  http.addHeader("Content-Type", "application/json");
+bool startNetworkWorker() {
+  networkRequests = xQueueCreate(1, sizeof(NetworkRequest));
+  networkReplies = xQueueCreate(1, sizeof(NetworkReply));
+  if (networkRequests && networkReplies
+      && xTaskCreatePinnedToCore(networkWorker, "astt-http", 16384, nullptr, 1, nullptr, 0) == pdPASS) return true;
+  if (networkRequests) vQueueDelete(networkRequests);
+  if (networkReplies) vQueueDelete(networkReplies);
+  networkRequests = networkReplies = nullptr;
+  return false;
+}
 
 
+bool queueNetworkRequest(NetworkOperation operation, const JsonDocument &doc) {
+  if (!networkReady || networkInFlight) return false;
+  NetworkRequest request = {};
+  request.operation = operation;
+  request.createdAt = millis();
+  request.generation = networkGeneration;
+  if (measureJson(doc) >= sizeof(request.body)) {
+    commandMessage = "NETWORK_PAYLOAD_TOO_LARGE";
+    return false;
+  }
+  serializeJson(doc, request.body, sizeof(request.body));
+  if (xQueueSend(networkRequests, &request, 0) != pdTRUE) return false;
+  networkInFlight = true;
+  return true;
+}
+
+
+// Best-effort metadata snapshot; failure never disables local AZ control.
+bool publishAzimuthReference() {
+  JsonDocument doc;
+  doc["az_encoder_min"] = AZ_ENCODER_MIN;
+  doc["az_encoder_max"] = AZ_ENCODER_MAX;
+  doc["az_encoder_offset"] = azEncoderOffset;
+  doc["az_range_temporary"] = false;
+  doc["az_reference"] = USE_MANUAL_AZ_REFERENCE ? "MANUAL_ALIGNMENT"
+                        : (azNorthReferenceReady ? "compass_estimate" : "encoder");
+  doc["az_alignment_verified"] = false;
+  doc["magnetic_declination"] = declination;
+  doc["mag_declination_supported"] = isfinite(declination);
+  return queueNetworkRequest(NetworkOperation::Reference, doc);
+}
+
+
+// Health describes actual sample availability, not a claim of calibrated accuracy.
+void updateHealthStatus() {
+  if (estopWasActive || !networkReady || !azEncoderValid
+      || (!USE_MANUAL_AZ_REFERENCE && (!azHeadingValid || !isfinite(declination)))) {
+    healthStatus = "FAULT";
+  } else if (!mpuOk || !elMpuOk || !GPS.fix || !azHeadingValid || !isfinite(declination)) {
+    healthStatus = "DEGRADED";
+  } else healthStatus = "OK";
+}
+
+
+void readSensors() {
+  readGPS();
+  azEncoderAngle = readAzEncoderAngle();
+  mpuOk = readMpu();
+  if (mpuOk) updateLevelAngles();
+  trueHeading = computeTrueHeading();
+  // Manual AZ comes only from the encoder; raw compass heading stays diagnostic.
+  azimuthAngle = USE_MANUAL_AZ_REFERENCE ? encoderToTrueAzimuth(azEncoderAngle) : trueHeading;
+  elMpuOk = readElevationMpu();
+  updateHealthStatus();
+}
+
+
+// The same bounded snapshot is printed locally and stored on its API reading.
+String buildDiagnosticLine(float encoderAngle, float encoderTarget, int direction, int azPwm, int elPwm) {
+  char line[1024];
+  snprintf(line, sizeof(line),
+           "ms=%lu health=%s state=%s cmd=%d last_event=%s enc=%.2f az=%.2f el=%.2f target=%.2f/%.2f rawTarget=%.2f dir=%d reqPWM=%d/%d magnetic=%.2f decl=%.4f true=%.2f offset=%.2f ref=%s ENC=%s MAG=%s heading=%s mag_uT=%.2f/%.2f/%.2f MPU=%s accel_ms2=%.2f/%.2f/%.2f gyro_dps=%.2f/%.2f/%.2f base=%.1f/%.1f EL_MPU=%s GPS=%s lat=%.5f lon=%.5f alt_m=%.1f site=%s http_prev(command/reading/metadata)=%d/%d/%d",
+           millis(), healthStatus.c_str(), movementStatus.c_str(), lastCommandId, commandMessage.c_str(),
+           encoderAngle, azimuthAngle, elevationAngle, apiAzTarget, apiElTarget, encoderTarget,
+           direction, azPwm, elPwm, magneticHeading, declination, trueHeading, azEncoderOffset,
+           USE_MANUAL_AZ_REFERENCE ? "MANUAL_ALIGNMENT"
+             : (azNorthReferenceReady ? "COMPASS_ESTIMATE" : "SENSOR_UNAVAILABLE"),
+           azEncoderValid ? "OK" : "ERR", magneticSampleValid ? "OK" : "ERR",
+           azHeadingValid ? "LIVE" : "STALE",
+           magneticFieldX * 1.0e6f, magneticFieldY * 1.0e6f, magneticFieldZ * 1.0e6f,
+           mpuOk ? "OK" : "ERR", mpuAccelX * 9.80665f, mpuAccelY * 9.80665f, mpuAccelZ * 9.80665f,
+           mpuGyroX, mpuGyroY, mpuGyroZ, levelRoll, levelPitch,
+           elMpuOk ? "OK" : "ERR", GPS.fix ? "FIX" : "NO_FIX", latitude, longitude, altitude,
+           GPS.fix ? "GPS" : "DEFAULT", lastCommandHttp, lastReadingHttp, lastMetadataHttp);
+  return String(line);
+}
+
+
+void updateDiagnostics(unsigned long now, float encoderAngle, float encoderTarget,
+                       int direction, int azPwm, int elPwm) {
+  updateHealthStatus();
+  serialLog = buildDiagnosticLine(encoderAngle, encoderTarget, direction, azPwm, elPwm);
+  if (now - lastDiagnosticTime >= 1000) {
+    lastDiagnosticTime = now;
+    Serial.println(serialLog);
+  }
+}
+
+
+bool postReadings() {
   JsonDocument doc;
   doc["telescope_id"] = telescopeId;
   doc["azimuth_angle"] = azimuthAngle;
@@ -644,58 +881,117 @@ void postReadings() {
   doc["magnetic_field_z"] = magneticFieldZ;
   doc["health_status"] = healthStatus;
   doc["movement_status"] = movementStatus;
+  doc["serial_log"] = serialLog;
 
-
-  String payload;
-  serializeJson(doc, payload);
-  Serial.printf("GPS lat %.5f lon %.5f alt %.1f m fix %d\n", latitude, longitude, altitude, GPS.fix);
-  Serial.printf("MPU accel %.4f %.4f %.4f m/s2, gyro %.2f %.2f %.2f deg/s (%s)\n",
-                mpuAccelX * 9.80665f, mpuAccelY * 9.80665f, mpuAccelZ * 9.80665f,
-                mpuGyroX, mpuGyroY, mpuGyroZ,
-                mpuOk ? "OK" : "NOT FOUND");
-  Serial.printf("MAG %.8f %.8f %.8f T (%s)\n",
-                magneticFieldX, magneticFieldY, magneticFieldZ, magOk ? "OK" : "NOT FOUND");
-  int responseCode = http.POST(payload);
-  Serial.printf("readings POST %d: %s\n", responseCode, payload.c_str());
-  http.end();
+  return queueNetworkRequest(NetworkOperation::Reading, doc);
 }
 
 
-void pollCommands() {
-  if (WiFi.status() != WL_CONNECTED) return;
+// A repeated ID is a heartbeat, not permission to restart a completed or stopped Point.
+bool acceptCommandId(int commandId) {
+  if (commandId <= 0) { commandMessage = "INVALID_COMMAND_ID"; return false; }
+  if (!commandBaselineReady) {
+    startupCommandId = commandId;
+    lastCommandId = commandId;
+    commandBaselineReady = true;
+    commandMessage = "STARTUP_BASELINE_SEND_NEW_COMMAND";
+    return false;
+  }
+  if (commandId <= startupCommandId || commandId < lastCommandId) return false;
+  if (commandId == lastCommandId) { lastApiTime = millis(); return false; }
+  lastCommandId = commandId;
+  return true;
+}
 
 
-  WiFiClient client;
-  HTTPClient http;
-  http.begin(client, commandsUrl);
+void clearCommandTargets() {
+  stopAzimuthMotor();
+  stopElevationMotor();
+  azPointActive = false;
+  azPointComplete = false;
+  apiAzTarget = -1.0f;
+  apiElTarget = -1.0f;
+  isTracking = false;
+  lastApiTime = 0;
+}
 
 
-  if (http.GET() != 200) {
-    http.end();
+void expireCommand(unsigned long now) {
+  if ((azPointActive || isTracking || apiElTarget >= 0) && now - lastApiTime >= SOURCE_TIMEOUT) {
+    networkGeneration++;
+    clearCommandTargets();
+    commandMessage = "COMMAND_TIMEOUT_SEND_NEW_COMMAND";
+  }
+}
+
+
+void finishAzPoint() {
+  stopAzimuthMotor();
+  azPointActive = false;
+  azPointComplete = true;
+  commandMessage = "AZ_POINT_COMPLETE";
+}
+
+
+bool startPoint(float azimuth, float elevation) {
+  if (!checkAzimuthFeedback()) return false;
+  if (!isfinite(azimuth) || !isfinite(elevation) || azimuth < AZ_MIN || azimuth > AZ_MAX
+      || elevation < EL_MIN || elevation > EL_MAX) {
+    commandMessage = "POINT_REJECTED_INVALID_ANGLES";
+    return false;
+  }
+  if (inAzimuthNoGoZone(trueAzimuthToEncoder(azimuth))) {
+    char reason[120];
+    snprintf(reason, sizeof(reason), "POINT_REJECTED_RAW_TARGET_BLOCKED requested=%.2f raw=%.2f",
+             azimuth, trueAzimuthToEncoder(azimuth));
+    commandMessage = reason;
+    return false;
+  }
+  apiAzTarget = norm360(azimuth);
+  apiElTarget = elevation;
+  azPointActive = true;
+  azPointComplete = false;
+  isTracking = false;
+  lastApiTime = millis();
+  commandMessage = "POINT_ACCEPTED";
+  return true;
+}
+
+
+void applyCommandReply(const NetworkReply &reply) {
+  lastCommandHttp = reply.status;
+  if (lastCommandHttp != 200) {
+    if (lastCommandHttp == 404 && !commandBaselineReady) {
+      commandBaselineReady = true;
+      commandMessage = "NO_COMMAND_SEND_NEW_COMMAND";
+    }
     return;
   }
 
 
   JsonDocument doc;
-  if (deserializeJson(doc, http.getString())) {
-    http.end();
+  if (deserializeJson(doc, reply.body)) {
+    commandMessage = "COMMAND_JSON_ERROR";
     return;
   }
 
-
+  int commandId = doc["id"] | 0;
   const char* cmdType = doc["command_type"] | "";
-
+  if (strcmp(cmdType, "point") != 0 && strcmp(cmdType, "track") != 0) {
+    commandMessage = "UNSUPPORTED_COMMAND_TYPE";
+    return;
+  }
+  if (!acceptCommandId(commandId)) {
+    if (commandId == lastCommandId && commandId > startupCommandId) lastApiTime = reply.createdAt;
+    return;
+  }
+  clearCommandTargets();
+  if (!checkAzimuthFeedback()) return;
 
   if (strcmp(cmdType, "point") == 0) {
     float newAz = doc["point"]["target_az_angle"] | -1.0f;
     float newEl = doc["point"]["target_el_angle"] | -1.0f;
-    if (newAz >= AZ_MIN && newAz <= AZ_MAX && newEl >= EL_MIN && newEl <= EL_MAX) {
-      apiAzTarget = norm360(newAz);
-      apiElTarget = newEl;
-      lastApiTime = millis();
-      isTracking = false;
-      Serial.printf("point az %.1f el %.1f\n", apiAzTarget, apiElTarget);
-    }
+    if (startPoint(newAz, newEl)) lastApiTime = reply.createdAt;
   } else if (strcmp(cmdType, "track") == 0) {
     track_m1 = doc["track"]["source"]["m_1"] | 0.0f;
     track_m2 = doc["track"]["source"]["m_2"] | 0.0f;
@@ -707,15 +1003,63 @@ void pollCommands() {
     track_D = doc["track"]["source"]["D"] | 0.0f;
     track_T_dec = doc["track"]["source"]["T_dec"] | 1.0f;
     isTracking = true;
-    lastApiTime = millis();
-    Serial.println("track");
+    lastCommandId = commandId;
+    lastApiTime = reply.createdAt;
+    commandMessage = "TRACK_ACCEPTED";
   }
 
 
-  http.end();
 }
 
 
+// Apply replies only here, after the loop checks current E-stop and feedback.
+void receiveNetworkReply(bool estopActive) {
+  if (!networkReady) return;
+  NetworkReply reply;
+  if (xQueueReceive(networkReplies, &reply, 0) != pdTRUE) return;
+  networkInFlight = false;
+  // Leave a gap after a slow poll so telemetry and metadata also get a turn.
+  if (reply.operation == NetworkOperation::Command) lastPollTime = millis();
+  if (reply.generation != networkGeneration || millis() - reply.createdAt >= SOURCE_TIMEOUT) return;
+  if (reply.operation == NetworkOperation::Command) {
+    if (!estopActive) applyCommandReply(reply);
+  } else if (reply.operation == NetworkOperation::Reading) lastReadingHttp = reply.status;
+  else lastMetadataHttp = reply.status;
+}
+
+
+void serviceNetwork(unsigned long now, bool estopActive) {
+  if (!networkReady || networkInFlight) return;
+  if (!estopActive && now - lastPollTime >= POLL_INTERVAL) {
+    JsonDocument empty;
+    if (queueNetworkRequest(NetworkOperation::Command, empty)) lastPollTime = now;
+  } else if (now - lastPostTime >= POST_INTERVAL) {
+    if (postReadings()) {
+      lastPostTime = now;
+      metadataPending = true;
+    }
+  } else if (metadataPending && publishAzimuthReference()) metadataPending = false;
+}
+
+
+
+
+// Latch even a brief sampled E-stop; releasing it cannot revive an old command.
+void latchEmergencyStop() {
+  stopAzimuthMotor();
+  stopElevationMotor();
+  movementStatus = "ESTOP";
+  healthStatus = "FAULT";
+  if (!estopWasActive) {
+    networkGeneration++;
+    clearCommandTargets();
+    startupCommandId = lastCommandId;
+    commandBaselineReady = false;
+    azNorthReferenceReady = false;
+    commandMessage = "ESTOP_ACTIVE_TARGETS_CLEARED";
+  }
+  estopWasActive = true;
+}
 
 
 // ================= setup =================
@@ -733,11 +1077,18 @@ void setup() {
   pinMode(ESTOP_PIN, INPUT_PULLUP);
   stopAzimuthMotor();
   stopElevationMotor();
+  // Also initialize telemetry if the encoder is temporarily unavailable at boot.
+  if (USE_MANUAL_AZ_REFERENCE) azEncoderOffset = norm360(-encoderAtNorth);
+  if (USE_MANUAL_AZ_REFERENCE) {
+    Serial.printf("MANUAL_ALIGNMENT: level base and north-align at encoder %.2f before commands; accuracy unverified\n",
+                  encoderAtNorth);
+  } else Serial.println("AZ compass estimate: keep sensor level; magnetic calibration deferred");
 
 
   pinMode(I2C_SDA, INPUT_PULLUP);
   pinMode(I2C_SCL, INPUT_PULLUP);
   Wire.begin(I2C_SDA, I2C_SCL);
+  Wire.setTimeOut(20);
 
 
   GPS.begin(0x10);
@@ -745,9 +1096,8 @@ void setup() {
   GPS.sendCommand(PMTK_SET_NMEA_UPDATE_1HZ);
 
 
-  magOk = myMag.begin();
-  if (magOk) myMag.softReset();
-  else Serial.println("no magnetometer");
+  // One-second power-up/retry and continuous reads run in loop(), never a wait loop.
+  magOk = false;
 
   mpuOk = initMpu(MPU_ADDR) && readMpu();
   if (mpuOk) updateLevelAngles();
@@ -761,13 +1111,14 @@ void setup() {
 
   connectWifi();
   syncNTP();
-  publishEncoderCalibration();
+  networkReady = startNetworkWorker();
+  if (!networkReady) commandMessage = "NETWORK_WORKER_UNAVAILABLE_OUTPUTS_DISABLED";
 
 
   azEncoderAngle = readAzEncoderAngle();
+  if (USE_MANUAL_AZ_REFERENCE) setAzimuthReference(azEncoderAngle, NAN);
 
 
-  calibStartTime = millis();
   Serial.println("ready");
 }
 
@@ -781,59 +1132,45 @@ void loop() {
   unsigned long now = millis();
 
 
-  readGPS();
-
-
   bool estopActive = digitalRead(ESTOP_PIN) == LOW;
   if (estopActive) {
-    stopAzimuthMotor();
-    stopElevationMotor();
-    movementStatus = "ESTOP";
-    healthStatus = "FAULT";
-
-    if (!estopWasActive) {
-      apiAzTarget = -1.0f;
-      apiElTarget = -1.0f;
-      lastApiTime = 0;
-      isTracking = false;
-      Serial.println("estop active; targets cleared");
-    }
-
-    estopWasActive = true;
+    latchEmergencyStop();
+    readSensors();
+    updateDiagnostics(now, azEncoderAngle, -1.0f, 0, 0, 0);
+    receiveNetworkReply(true);
+    serviceNetwork(millis(), true);
     delay(10);
     return;
   }
 
   if (estopWasActive) {
-    Serial.println("estop released; waiting for a new command");
+    networkGeneration++;
+    metadataPending = true;
+    lastPollTime = millis() - POLL_INTERVAL;
+    commandMessage = "ESTOP_RELEASED_SEND_NEW_COMMAND";
   }
   estopWasActive = false;
-  healthStatus = "OK";
-
-
-  // The encoder is the fast mechanical position used by the motor loop.
-  float azCurrent = readAzEncoderAngle();
-
-  if (!readMpu()) {
-    if (mpuOk) Serial.println("mpu6050 read failed");
-    mpuOk = false;
-  } else {
-    if (!mpuOk) Serial.println("mpu6050 detected");
-    mpuOk = true;
-    updateLevelAngles();
+  readSensors();
+  // Sensor reads can wait for a pulse/I2C response. Never drive past a new E-stop.
+  if (digitalRead(ESTOP_PIN) == LOW) {
+    latchEmergencyStop();
+    return;
   }
-
-  // Keep magnetometer readings for diagnostics; movement uses the fixed encoder reference.
-  trueHeading = computeTrueHeading();
-  azimuthAngle = encoderToTrueAzimuth(azCurrent);
-
-  if (!readElevationMpu()) {
-    if (elMpuOk) Serial.println("elevation mpu6050 read failed");
-    elMpuOk = false;
-  } else {
-    if (!elMpuOk) Serial.println("elevation mpu6050 detected");
-    elMpuOk = true;
+  expireCommand(millis());
+  float azCurrent = azEncoderAngle;
+  if (!USE_MANUAL_AZ_REFERENCE
+      && (!isfinite(declination) || (!azPointActive && !isTracking && !azHeadingValid))) {
+    azNorthReferenceReady = false;
   }
+  setAzimuthReference(azCurrent, trueHeading);
+  if ((!networkReady || !azNorthReferenceReady || !azEncoderValid)
+      && (azPointActive || isTracking || apiElTarget >= 0)) {
+    networkGeneration++;
+    clearCommandTargets();
+    commandMessage = "FEEDBACK_LOST_SEND_NEW_COMMAND";
+  }
+  receiveNetworkReply(false);
+  now = millis();
 
 
   // tracking keeps recomputing its own target
@@ -843,12 +1180,11 @@ void loop() {
       isTracking = false;
       apiAzTarget = -1.0f;
       apiElTarget = -1.0f;
-      Serial.println("track failed, clock or params bad");
+      commandMessage = "TRACK_FAILED_CLOCK_OR_PARAMETERS";
     } else {
       apiAzTarget = computed;
       apiElTarget = (trackEl >= EL_MIN && trackEl <= EL_MAX) ? trackEl : -1.0f;
-      lastApiTime = now;
-      if (apiElTarget < 0) Serial.printf("source outside elevation range el %.1f\n", trackEl);
+      if (apiElTarget < 0) commandMessage = "TRACK_SOURCE_OUTSIDE_EL_RANGE";
     }
   }
 
@@ -861,19 +1197,26 @@ void loop() {
   int azPwm = 0;
   int azDirection = 0;
 
-  if (!azTargetFresh) {
+  bool referenceReady = networkReady && azNorthReferenceReady && commandBaselineReady;
+  if (!referenceReady || !azEncoderValid) {
     stopAzimuthMotor();
-    movementStatus = "IDLE";
+    movementStatus = referenceReady ? "AZ ENCODER UNAVAILABLE" : "AZ FEEDBACK UNAVAILABLE";
+  } else if (!azTargetFresh || (!isTracking && !azPointActive)) {
+    stopAzimuthMotor();
+    movementStatus = azPointComplete ? "AZ POINT COMPLETE" : "IDLE";
+    if (azPointComplete) azError = fabs(signedAngleDifference(encoderToTrueAzimuth(azCurrent), apiAzTarget));
   } else {
     azTarget = norm360(apiAzTarget);
 
-    // Convert the UI angle with the fixed encoder offset (zero during testing).
+    // Convert true azimuth to raw encoder degrees before applying mechanical limits.
     azTargetEncoder = trueAzimuthToEncoder(azTarget);
     azDirection = chooseDirection(azCurrent, azTargetEncoder);
 
     if (azDirection == 0) {
       stopAzimuthMotor();
+      azPointActive = false;
       movementStatus = inAzimuthNoGoZone(azCurrent) ? "AZ POSITION BLOCKED" : "AZ TARGET BLOCKED";
+      commandMessage = movementStatus;
     } else {
       azError = (azDirection > 0)
                 ? cwDistance(azCurrent, azTargetEncoder)
@@ -882,6 +1225,7 @@ void loop() {
 
       if (azPwm == 0) {
         stopAzimuthMotor();
+        if (!isTracking) finishAzPoint();
         movementStatus = "IDLE";
       } else {
         driveAzimuthMotor(azPwm, azDirection);
@@ -896,7 +1240,7 @@ void loop() {
   float elError = 0.0;
   int elPwm = 0;
 
-  if (!mpuOk || !elMpuOk || !elTargetFresh) {
+  if (!referenceReady || !mpuOk || !elMpuOk || !elTargetFresh) {
     stopElevationMotor();
   } else {
     float signedElError = apiElTarget - elevationAngle;
@@ -916,30 +1260,26 @@ void loop() {
     }
   }
 
-  Serial.printf("enc %.4f encTgt %.4f dir %d offset %.4f az %.4f tgt %.1f mag %.1f gyroZ %.1f base %.1f/%.1f elMpu %.1f el %.1f tgt %.1f err %.1f pwm %d/%d ref ENC %s\n",
-                azCurrent, azTargetEncoder, azDirection, AZ_ENCODER_OFFSET,
-                azimuthAngle, azTarget, trueHeading, mpuGyroZ, levelRoll, levelPitch,
-                elevationMpuPitch, elevationAngle, apiElTarget, azError, azPwm, elPwm,
-                movementStatus.c_str());
-
-
-  // network
-  if (now - lastPostTime >= POST_INTERVAL) {
-    lastPostTime = now;
-    postReadings();
-  }
-  if (now - lastPollTime >= POLL_INTERVAL) {
-    lastPollTime = now;
-    pollCommands();
+  if (referenceReady && azEncoderValid && mpuOk && elMpuOk && azTargetFresh && elTargetFresh
+      && !isTracking && azPointComplete && azPwm == 0 && elPwm == 0
+      && azError < AZ_TOLERANCE && elError < EL_TOLERANCE) {
+    movementStatus = "ON TARGET";
   }
 
+  updateDiagnostics(now, azCurrent, azTargetEncoder, azDirection, azPwm, elPwm);
+
+
+  serviceNetwork(millis(), false);
+  delay(1);  // Yield without interrupting the PWM outputs.
 
 
 }
 /*
-Reported lower physical stop: raw encoder 137.8°.
-Assumed opposite stop: raw encoder 37.8° (still requires measurement).
-Allowed travel: 137.8° through 360/0° to 37.8°, fixed offset 0°.
+Operator-verified raw stops: 137.8° and 37.8°, clockwise 1:1 encoder mapping.
+Raw allowed travel: 137.8° through 360/0° to 37.8°; limits do not include the north offset.
 No-go zone: between 37.8° and 137.8°, excluding the endpoints.
-Point test examples: AZ 250°, 350°, 20°; keep EL at its current measured value.
+Manual north is the permitted-arc midpoint 267.8°, physically aligned by the operator.
+Manual UI/readings use encoder + fixed offset; Point targets subtract that offset.
+Compass readings never overwrite the manual reference. Absolute accuracy is unqualified.
+No startup movement; phone alignment is an operator precondition, not sensed by firmware.
 */
