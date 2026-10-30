@@ -2,6 +2,7 @@ export interface CreateReading {
     telescope_id: number;
     azimuth_angle: number;
     elevation_angle: number;
+    el_encoder_angle?: number | null;
     latitude: number;
     longitude: number;
     altitude: number;

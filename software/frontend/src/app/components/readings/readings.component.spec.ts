@@ -1,5 +1,5 @@
-import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { of } from 'rxjs';
+import { ComponentFixture, fakeAsync, TestBed, tick } from '@angular/core/testing';
+import { of, throwError } from 'rxjs';
 import { ReadingsComponent } from './readings.component';
 import { ReadingService } from '../../services/reading.service';
 import { TelescopeService } from '../../services/telescope.service';
@@ -45,6 +45,36 @@ describe('ReadingsComponent', () => {
   it('should create', () => {
     expect(component).toBeTruthy();
   });
+
+  it('displays raw EL including zero and missing values without using the MPU angle', () => {
+    component.readings = [
+      sensorReading({ el_encoder_angle: 36.92, elevation_angle: 0 }),
+      sensorReading({ el_encoder_angle: 0 }),
+      sensorReading({ el_encoder_angle: null }), sensorReading()
+    ];
+    fixture.detectChanges();
+    const values: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll('.el-encoder-reading');
+    expect(Array.from(values).map(value => value.textContent?.trim()))
+      .toEqual(['36.92°', '0.00°', 'Not available', 'Not available']);
+  });
+
+  it('refreshes readings, recovers after a failed poll and stops on destroy', fakeAsync(() => {
+    component.ngOnDestroy();
+    readingService.getReadings.and.returnValues(
+      of([]), of([sensorReading({ el_encoder_angle: 10 })]),
+      throwError(() => new Error('temporary outage')),
+      of([sensorReading({ id: 102, el_encoder_angle: 20 })])
+    );
+    component.ngOnInit();
+    tick(5000);
+    expect(component.readings[0].el_encoder_angle).toBe(10);
+    tick(10000);
+    expect(component.readings[0].el_encoder_angle).toBe(20);
+    component.ngOnDestroy();
+    const calls: number = readingService.getReadings.calls.count();
+    tick(5000);
+    expect(readingService.getReadings.calls.count()).toBe(calls);
+  }));
 
   it('shows collapsed escaped diagnostics for each row without mixing their logs', () => {
     component.readings = [

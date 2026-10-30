@@ -50,6 +50,30 @@ installed heading calibration remain deferred under ASTT-047.
 Older sketches remain as reference implementations. Do not assume their pins,
 telescope IDs, or API hosts match the current assembly.
 
+### EL encoder reading test — ASTT-044
+
+The operator confirms the same PWM encoder as AZ, connected to GPIO35.
+`readElEncoderAngle()` reads its raw duty angle using the existing AZ equation:
+`HIGH / (HIGH + LOW) * 360`. One sample is taken at most every 100 ms; each
+pulse wait is bounded to 25 ms (up to 50 ms added when the signal is missing).
+This is a diagnostic reading, with no EL zero, gearing or travel limits applied.
+It does not replace `elevation_angle` or drive the EL motor.
+
+After verifying/uploading the single sketch yourself, disconnect motor power
+and open Serial Monitor at 115200. Look for `elEnc=123.45 EL_ENC=OK` (example),
+also available in the latest reading's **Show more** log. Move the encoder
+gently through accessible positions and check that the value changes and repeats.
+Missing HIGH or LOW pulses report `elEnc=nan EL_ENC=ERR`, not a stale angle.
+The payload also sends nullable `el_encoder_angle`. The updated app shows
+**EL encoder (raw)** in the live panel, readings table and graph; missing values
+show Not available or a graph gap. Existing `elevation_angle` stays separate as
+MPU elevation and remains the input to the old EL draft. Until the firmware is
+updated, the API accepts `elEnc=... EL_ENC=OK` from its existing diagnostic log.
+Use the same safe signal-level arrangement as AZ. Do not force the geared dish.
+Record direction and readings before the later, supervised stop/zero work.
+AZ control and the existing MPU-based EL draft are unchanged; powered EL control
+and physical input/timing qualification are still pending.
+
 ## Current system
 
 The integrated firmware connects over Wi-Fi, posts readings, polls Point and
@@ -74,7 +98,7 @@ Elevation uses accelerometer-derived tilt because a gyro alone will drift.
 | L298 IN4 | GPIO25 | Elevation direction |
 | L298 ENA | GPIO33 | Azimuth PWM; add a 10 kOhm pull-down |
 | L298 ENB | GPIO32 | Elevation PWM; add a 10 kOhm pull-down |
-| Future EL encoder | GPIO35 | Reserved input only; not used by firmware |
+| EL PWM encoder | GPIO35 | Raw diagnostic reading only; operator-confirmed wiring |
 | I2C SDA | GPIO21 | Shared sensor bus |
 | I2C SCL | GPIO22 | Shared sensor bus |
 
@@ -82,12 +106,12 @@ The physical header sequence is:
 
 ```text
 GPIO: 13    12    14   27   26   25    35    34    33   32
-Use:  free  skip  IN1  IN2  IN3  IN4   skip  skip  ENA  ENB
+Use:  free  skip  IN1  IN2  IN3  IN4   ELenc skip  ENA  ENB
 ```
 
 This keeps all four direction signals consecutive and places both enable signals
-together elsewhere on the same header side. It avoids boot-strapping GPIO12 and
-input-only GPIO35/GPIO34. Keep both enable pull-downs fitted so the motors stay
+together elsewhere on the same header side. Motor outputs avoid boot-strapping
+GPIO12 and input-only GPIO35/GPIO34. Keep both enable pull-downs fitted so the motors stay
 disabled while the MCU starts.
 
 Keep the original MPU6050 at address `0x68`. Tie the elevation MPU6050 AD0 pin
@@ -326,12 +350,12 @@ remain unchanged until safe thresholds and obstruction handling are confirmed.
 
 ### Newly requested elevation and levelling work
 
-- **ASTT-055 is reopened:** finish and physically verify EL movement using the
-  existing L298 channel-B pins and two-MPU reference. The draft alone is not
-  completed physical elevation.
-- **ASTT-042:** confirm MPU axes and relative elevation zero.
-- **ASTT-044:** integrate/calibrate the planned EL encoder after confirming its
-  model, signal, mounting, and wiring. GPIO35 is reserved, not active feedback.
+- **ASTT-055 is reopened:** implement encoder-feedback EL movement using the
+  existing L298 channel-B pins after switch protection is confirmed. The motor
+  is connected per the operator; the old MPU draft is not qualified EL control.
+- **ASTT-042:** record both stops, then set mechanical zero at the permitted midpoint.
+- **ASTT-044:** GPIO35 PWM readings now work in the UI per the operator. Record
+  direction, scale and both limit-switch stop positions next.
 - **ASTT-050:** qualify physical elevation after calibration and safety checks.
 - **ASTT-089:** add the manual-level UI indicator using the base MPU if suitable;
   do not confuse it with the separate moving elevation sensor.

@@ -32,7 +32,7 @@ const int EL_IN2 = 25;  // L298 IN4
 const int AZ_ENA = 33;
 const int EL_ENA = 32;  // L298 ENB
 const int AZ_ENCODER_PIN = 19;
-const int EL_ENCODER_PIN = 35;  // reserved for a future input-only encoder
+const int EL_ENCODER_PIN = 35;  // same PWM encoder as AZ; readings only for now
 const int ESTOP_PIN = 23;
 
 
@@ -70,6 +70,9 @@ const float AZ_ENCODER_SMOOTHING = 0.5;  // 0 is no smoothing, 1 never updates
 float azEncoderAngle = 0.0;
 bool azEncoderReady = false;
 bool azEncoderValid = false;
+float elEncoderAngle = NAN;  // raw encoder degrees, not calibrated elevation
+bool elEncoderValid = false;
+unsigned long lastElEncoderRead = 0;
 float azEncoderOffset = AZ_ENCODER_OFFSET;
 bool azNorthReferenceReady = false;
 bool azHeadingValid = false;
@@ -412,6 +415,18 @@ float readAzEncoderAngle() {
     azEncoderAngle = norm360(azEncoderAngle + (1.0 - AZ_ENCODER_SMOOTHING) * difference);
   }
   return azEncoderAngle;
+}
+
+
+// Diagnostic only: do not feed this raw angle into the existing EL motor draft.
+void readElEncoderAngle() {
+  if (millis() - lastElEncoderRead < 100) return;
+  lastElEncoderRead = millis();
+  // One sample per 100 ms avoids adding a second seven-sample batch to AZ control.
+  unsigned long hi = pulseIn(EL_ENCODER_PIN, HIGH, 25000);
+  unsigned long lo = pulseIn(EL_ENCODER_PIN, LOW, 25000);
+  elEncoderValid = hi > 0 && lo > 0;
+  elEncoderAngle = elEncoderValid ? ((float)hi / (float)(hi + lo)) * 360.0f : NAN;
 }
 
 
@@ -820,6 +835,7 @@ void updateHealthStatus() {
 void readSensors() {
   readGPS();
   azEncoderAngle = readAzEncoderAngle();
+  readElEncoderAngle();
   mpuOk = readMpu();
   if (mpuOk) updateLevelAngles();
   trueHeading = computeTrueHeading();
@@ -834,9 +850,10 @@ void readSensors() {
 String buildDiagnosticLine(float encoderAngle, float encoderTarget, int direction, int azPwm, int elPwm) {
   char line[1024];
   snprintf(line, sizeof(line),
-           "ms=%lu health=%s state=%s cmd=%d last_event=%s enc=%.2f az=%.2f el=%.2f target=%.2f/%.2f rawTarget=%.2f dir=%d reqPWM=%d/%d magnetic=%.2f decl=%.4f true=%.2f offset=%.2f ref=%s ENC=%s MAG=%s heading=%s mag_uT=%.2f/%.2f/%.2f MPU=%s accel_ms2=%.2f/%.2f/%.2f gyro_dps=%.2f/%.2f/%.2f base=%.1f/%.1f EL_MPU=%s GPS=%s lat=%.5f lon=%.5f alt_m=%.1f site=%s http_prev(command/reading/metadata)=%d/%d/%d",
+           "ms=%lu health=%s state=%s cmd=%d last_event=%s enc=%.2f az=%.2f el=%.2f elEnc=%.2f EL_ENC=%s target=%.2f/%.2f rawTarget=%.2f dir=%d reqPWM=%d/%d magnetic=%.2f decl=%.4f true=%.2f offset=%.2f ref=%s ENC=%s MAG=%s heading=%s mag_uT=%.2f/%.2f/%.2f MPU=%s accel_ms2=%.2f/%.2f/%.2f gyro_dps=%.2f/%.2f/%.2f base=%.1f/%.1f EL_MPU=%s GPS=%s lat=%.5f lon=%.5f alt_m=%.1f site=%s http_prev(command/reading/metadata)=%d/%d/%d",
            millis(), healthStatus.c_str(), movementStatus.c_str(), lastCommandId, commandMessage.c_str(),
-           encoderAngle, azimuthAngle, elevationAngle, apiAzTarget, apiElTarget, encoderTarget,
+           encoderAngle, azimuthAngle, elevationAngle, elEncoderAngle, elEncoderValid ? "OK" : "ERR",
+           apiAzTarget, apiElTarget, encoderTarget,
            direction, azPwm, elPwm, magneticHeading, declination, trueHeading, azEncoderOffset,
            USE_MANUAL_AZ_REFERENCE ? "MANUAL_ALIGNMENT"
              : (azNorthReferenceReady ? "COMPASS_ESTIMATE" : "SENSOR_UNAVAILABLE"),
@@ -867,6 +884,8 @@ bool postReadings() {
   doc["telescope_id"] = telescopeId;
   doc["azimuth_angle"] = azimuthAngle;
   doc["elevation_angle"] = elevationAngle;
+  if (elEncoderValid) doc["el_encoder_angle"] = elEncoderAngle;
+  else doc["el_encoder_angle"] = nullptr;
   doc["latitude"] = latitude;
   doc["longitude"] = longitude;
   doc["altitude"] = altitude;
@@ -1074,6 +1093,7 @@ void setup() {
   pinMode(EL_IN2, OUTPUT);
   pinMode(EL_ENA, OUTPUT);
   pinMode(AZ_ENCODER_PIN, INPUT);
+  pinMode(EL_ENCODER_PIN, INPUT);
   pinMode(ESTOP_PIN, INPUT_PULLUP);
   stopAzimuthMotor();
   stopElevationMotor();

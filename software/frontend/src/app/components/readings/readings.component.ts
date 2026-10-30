@@ -1,4 +1,5 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnDestroy, OnInit } from '@angular/core';
+import { catchError, EMPTY, exhaustMap, interval, Subscription } from 'rxjs';
 import { Reading } from '../../interfaces/reading';
 import { ReadingService } from '../../services/reading.service';
 import { CommonModule } from '@angular/common';
@@ -13,7 +14,8 @@ import { Telescope } from '../../interfaces/telescope';
   templateUrl: './readings.component.html',
   styleUrl: './readings.component.css'
 })
-export class ReadingsComponent implements OnInit {
+export class ReadingsComponent implements OnInit, OnDestroy {
+  private pollSubscription: Subscription | null = null;
   readings: Reading[] = [];
   telescopes: Telescope[] = [];
   isLoading: boolean = false;
@@ -23,6 +25,13 @@ export class ReadingsComponent implements OnInit {
   ngOnInit(): void {
     this.loadReadings();
     this.loadTelescopes();
+    this.pollSubscription = interval(5000).pipe(
+      exhaustMap(() => this.readingService.getReadings().pipe(catchError(() => EMPTY)))
+    ).subscribe((readings: Reading[]) => { this.readings = readings; });
+  }
+
+  ngOnDestroy(): void {
+    this.pollSubscription?.unsubscribe();
   }
 
   loadReadings(): void {

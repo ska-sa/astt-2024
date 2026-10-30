@@ -6,7 +6,7 @@
       <th scope="col">Health Status</th>
       <th scope="col">Movement Status</th>
       <th scope="col">Azimuth Angle</th>
-      <th scope="col">Elevation Angle</th>
+      <th scope="col">EL encoder (raw)</th>
       <th scope="col">Created At</th>
       <th scope="col">Diagnostics</th>
     </tr>
@@ -33,7 +33,7 @@
         <td [ngClass]="getHealthStatusClass(reading.health_status)">{{ reading.health_status || 'Unknown' }}</td>
         <td>{{ reading.movement_status || 'Unknown' }}</td>
         <td>{{ reading.azimuth_angle }} &deg;</td>
-        <td>{{ reading.elevation_angle }} &deg;</td>
+        <td class="el-encoder-reading">{{ reading.el_encoder_angle != null ? (reading.el_encoder_angle | number:'1.2-2') + '°' : 'Not available' }}</td>
         <td>{{ reading.created_at }}</td>
         <td>
           <details>

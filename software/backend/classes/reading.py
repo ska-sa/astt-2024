@@ -1,7 +1,9 @@
 """Sensor readings and an optional one-line firmware diagnostic."""
 
 from datetime import datetime
-from pydantic import BaseModel, Field
+import re
+from typing import Any
+from pydantic import BaseModel, Field, model_validator
 
 class CreateReading(BaseModel):
     """Telemetry posted by current and older firmware versions."""
@@ -24,6 +26,21 @@ class CreateReading(BaseModel):
     health_status: str
     movement_status: str
     serial_log: str | None = Field(default=None, max_length=2048)
+    el_encoder_angle: float | None = Field(default=None, ge=0, lt=360, allow_inf_nan=False)
+
+    @model_validator(mode='before')
+    @classmethod
+    def read_legacy_encoder_log(cls, data: Any) -> Any:
+        """Expose raw EL from the first reading-only firmware until it is upgraded."""
+        if not isinstance(data, dict) or data.get('el_encoder_angle') is not None:
+            return data
+        log = data.get('serial_log')
+        if not isinstance(log, str):
+            return data
+        match = re.search(r'(?:^|\s)elEnc=(\d+(?:\.\d+)?)\s+EL_ENC=OK(?:\s|$)', log)
+        if match and 0 <= float(match[1]) < 360:
+            return {**data, 'el_encoder_angle': float(match[1])}
+        return data
     
 class Reading(CreateReading):
     """A persisted telemetry sample returned by the existing API."""

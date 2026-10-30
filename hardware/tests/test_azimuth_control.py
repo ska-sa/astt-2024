@@ -139,7 +139,14 @@ void updateLevelAngles() {}
 void delay(int) {}
 unsigned long testHigh = 0;
 unsigned long testLow = 0;
-unsigned long pulseIn(int, int state, unsigned long) {
+unsigned long testElHigh = 0, testElLow = 0;
+int elPulseCalls = 0;
+unsigned long pulseIn(int pin, int state, unsigned long timeout) {
+  if (pin == 35) {
+    assert(timeout == 25000);
+    elPulseCalls++;
+    return state == HIGH ? testElHigh : testElLow;
+  }
   if (estopDuringPulse) testEstopPin = LOW;
   return state == HIGH ? testHigh : testLow;
 }
@@ -179,7 +186,7 @@ struct FakeMag {
   }
 } myMag;
 '''
-for name in ('AZ_MIN', 'AZ_MAX', 'EL_MIN', 'EL_MAX', 'AZ_ENCODER_MIN', 'AZ_ENCODER_MAX', 'AZ_ENCODER_OFFSET', 'AZ_TOLERANCE', 'AZ_RAMP_RANGE', 'AZ_MIN_PWM', 'AZ_MAX_PWM', 'EL_TOLERANCE', 'EL_RAMP_RANGE', 'EL_MIN_PWM', 'EL_MAX_PWM', 'AZ_ENCODER_SAMPLES', 'AZ_ENCODER_SMOOTHING', 'AZ_ENCODER_PIN', 'ESTOP_PIN', 'SOURCE_TIMEOUT', 'POST_INTERVAL', 'POLL_INTERVAL', 'MAG_MOUNTING_OFFSET_DEG', 'AZ_IN1', 'AZ_IN2', 'AZ_ENA', 'EL_IN1', 'EL_IN2', 'EL_ENA'):
+for name in ('AZ_MIN', 'AZ_MAX', 'EL_MIN', 'EL_MAX', 'AZ_ENCODER_MIN', 'AZ_ENCODER_MAX', 'AZ_ENCODER_OFFSET', 'AZ_TOLERANCE', 'AZ_RAMP_RANGE', 'AZ_MIN_PWM', 'AZ_MAX_PWM', 'EL_TOLERANCE', 'EL_RAMP_RANGE', 'EL_MIN_PWM', 'EL_MAX_PWM', 'AZ_ENCODER_SAMPLES', 'AZ_ENCODER_SMOOTHING', 'AZ_ENCODER_PIN', 'EL_ENCODER_PIN', 'ESTOP_PIN', 'SOURCE_TIMEOUT', 'POST_INTERVAL', 'POLL_INTERVAL', 'MAG_MOUNTING_OFFSET_DEG', 'AZ_IN1', 'AZ_IN2', 'AZ_ENA', 'EL_IN1', 'EL_IN2', 'EL_ENA'):
     program += re.search(r'^const (?:float|int|unsigned long) ' + name + r' = [^;]+;', source, re.M)[0] + '\n'
 # Only the copied mode flag is mutable, so both supported configurations use the same real functions.
 program += re.search(r'^const bool USE_MANUAL_AZ_REFERENCE = [^;]+;', source, re.M)[0].replace('const ', '', 1) + '\n'
@@ -187,9 +194,9 @@ program += re.search(r'^const float encoderAtNorth = [^;]+;', source, re.M)[0] +
 for name in ('magLastAttempt', 'magInitializedAt'):
     program += re.search(r'^unsigned long ' + name + r' = [^;]+;', source, re.M)[0] + '\n'
 program += source[source.index('enum class NetworkOperation'):source.index('// ---------- readings sent to backend ----------')]
-for name in ('azEncoderAngle', 'azEncoderReady', 'azEncoderValid', 'azEncoderOffset', 'azNorthReferenceReady', 'azHeadingValid', 'azMotorStopped', 'elMotorStopped', 'movementStatus', 'healthStatus', 'serialLog', 'commandMessage', 'apiAzTarget', 'apiElTarget', 'lastApiTime', 'startupCommandId', 'lastCommandId', 'commandBaselineReady', 'azPointActive', 'azPointComplete', 'isTracking', 'estopWasActive', 'magOk', 'magneticSampleValid', 'mpuOk', 'elMpuOk', 'magneticFieldX', 'magneticFieldY', 'magneticFieldZ', 'magneticHeading', 'declination', 'trueHeading', 'mpuAccelX', 'mpuAccelY', 'mpuAccelZ', 'mpuGyroX', 'mpuGyroY', 'mpuGyroZ', 'levelRoll', 'levelPitch', 'latitude', 'longitude', 'altitude', 'azimuthAngle', 'elevationAngle', 'lastCommandHttp', 'lastReadingHttp', 'lastMetadataHttp', 'lastDiagnosticTime', 'lastPostTime', 'lastPollTime', 'telescopeId', 'track_m1', 'track_c1', 'track_T_ra', 'track_A'):
+for name in ('azEncoderAngle', 'azEncoderReady', 'azEncoderValid', 'elEncoderAngle', 'elEncoderValid', 'lastElEncoderRead', 'azEncoderOffset', 'azNorthReferenceReady', 'azHeadingValid', 'azMotorStopped', 'elMotorStopped', 'movementStatus', 'healthStatus', 'serialLog', 'commandMessage', 'apiAzTarget', 'apiElTarget', 'lastApiTime', 'startupCommandId', 'lastCommandId', 'commandBaselineReady', 'azPointActive', 'azPointComplete', 'isTracking', 'estopWasActive', 'magOk', 'magneticSampleValid', 'mpuOk', 'elMpuOk', 'magneticFieldX', 'magneticFieldY', 'magneticFieldZ', 'magneticHeading', 'declination', 'trueHeading', 'mpuAccelX', 'mpuAccelY', 'mpuAccelZ', 'mpuGyroX', 'mpuGyroY', 'mpuGyroZ', 'levelRoll', 'levelPitch', 'latitude', 'longitude', 'altitude', 'azimuthAngle', 'elevationAngle', 'lastCommandHttp', 'lastReadingHttp', 'lastMetadataHttp', 'lastDiagnosticTime', 'lastPostTime', 'lastPollTime', 'telescopeId', 'track_m1', 'track_c1', 'track_T_ra', 'track_A'):
     program += re.search(r'^(?:float|bool|String|int|unsigned long) ' + name + r' = [^;]+;', source, re.M)[0] + '\n'
-for name in ('magneticDeclination', 'currentDecimalYear', 'norm360', 'cwDistance', 'signedAngleDifference', 'encoderToTrueAzimuth', 'trueAzimuthToEncoder', 'inAzimuthNoGoZone', 'chooseDirection', 'readAzEncoderAngle', 'setAzimuthReference', 'checkAzimuthFeedback', 'initializeMagnetometer', 'ensureMagnetometerReady', 'readMagneticField', 'computeTrueHeading', 'stopAzimuthMotor', 'stopElevationMotor', 'driveAzimuthMotor', 'driveElevationMotor', 'computeAzimuthPwm', 'computeElevationPwm', 'acceptCommandId', 'clearCommandTargets', 'latchEmergencyStop', 'expireCommand', 'finishAzPoint', 'startPoint', 'startNetworkWorker', 'queueNetworkRequest', 'publishAzimuthReference', 'updateHealthStatus', 'readSensors', 'buildDiagnosticLine', 'updateDiagnostics', 'postReadings', 'applyCommandReply', 'receiveNetworkReply', 'serviceNetwork'):
+for name in ('magneticDeclination', 'currentDecimalYear', 'norm360', 'cwDistance', 'signedAngleDifference', 'encoderToTrueAzimuth', 'trueAzimuthToEncoder', 'inAzimuthNoGoZone', 'chooseDirection', 'readAzEncoderAngle', 'readElEncoderAngle', 'setAzimuthReference', 'checkAzimuthFeedback', 'initializeMagnetometer', 'ensureMagnetometerReady', 'readMagneticField', 'computeTrueHeading', 'stopAzimuthMotor', 'stopElevationMotor', 'driveAzimuthMotor', 'driveElevationMotor', 'computeAzimuthPwm', 'computeElevationPwm', 'acceptCommandId', 'clearCommandTargets', 'latchEmergencyStop', 'expireCommand', 'finishAzPoint', 'startPoint', 'startNetworkWorker', 'queueNetworkRequest', 'publishAzimuthReference', 'updateHealthStatus', 'readSensors', 'buildDiagnosticLine', 'updateDiagnostics', 'postReadings', 'applyCommandReply', 'receiveNetworkReply', 'serviceNetwork'):
     program += function(name) + '\n'
 control = source[source.index('  bool azTargetFresh ='):source.index('  bool elTargetFresh =')]
 feedback = loop[loop.index('  if ((!networkReady || !azNorthReferenceReady || !azEncoderValid)'):loop.index('  receiveNetworkReply(false);')]
@@ -222,6 +229,8 @@ void reset() {
   testMilliseconds = 10000;
   testEstopPin = HIGH; estopDuringPulse = false;
   testHigh = 1700; testLow = 1900;
+  testElHigh = testElLow = 0; elPulseCalls = 0;
+  elEncoderAngle = NAN; elEncoderValid = false; lastElEncoderRead = 0;
   testNow = utcTimestamp(2026, 7, 2, 12);
   declination = magneticDeclination(currentDecimalYear());
   magOk = true; mpuOk = elMpuOk = false; GPS.fix = false;
@@ -419,6 +428,46 @@ void testCommands() {
   assert(!startPoint(100, 45)); // requested AZ minus offset maps inside the raw gap
   assert(!startPoint(NAN, 45) && !startPoint(230, 91));
   declination = NAN; assert(!startPoint(230, 45));
+}
+void testElevationEncoder() {
+  reset();
+  int beforeDrive = driveCalls;
+  float beforeElevation = elevationAngle, beforeAzimuth = azEncoderAngle;
+  for (int angle : {90, 180, 359, 1}) {
+    testMilliseconds += 100; testElHigh = angle * 10; testElLow = 3600 - testElHigh;
+    readElEncoderAngle();
+    assert(elEncoderValid && std::fabs(elEncoderAngle - angle) < 0.01f);
+  }
+  serialLog = buildDiagnosticLine(170, -1, 0, 0, 0);
+  assert(serialLog.find("elEnc=1.00 EL_ENC=OK") != String::npos);
+  assert(postReadings());
+  auto request = takeRequest();
+  JsonDocument payload;
+  assert(!deserializeJson(payload, request.body));
+  assert(payload["serial_log"].as<String>() == serialLog);
+  assert(std::fabs(payload["el_encoder_angle"].as<float>() - 1) < 0.01f);
+  assert(payload["elevation_angle"].as<float>() == beforeElevation);
+  networkInFlight = false;
+  int beforePulses = elPulseCalls;
+  testMilliseconds += 99; readElEncoderAngle();
+  assert(elPulseCalls == beforePulses);
+  for (int missing = 0; missing < 3; missing++) {
+    testMilliseconds += 100;
+    testElHigh = missing == 1 ? 1800 : 0; testElLow = missing == 0 ? 1800 : 0;
+    readElEncoderAngle();
+    assert(!elEncoderValid && std::isnan(elEncoderAngle));
+    assert(buildDiagnosticLine(170, -1, 0, 0, 0).find("EL_ENC=ERR") != String::npos);
+  }
+  assert(postReadings());
+  request = takeRequest();
+  assert(!deserializeJson(payload, request.body));
+  assert(payload["el_encoder_angle"].isNull());
+  lastElEncoderRead = std::numeric_limits<unsigned long>::max() - 50;
+  testMilliseconds = 50; testElHigh = testElLow = 1800;
+  readElEncoderAngle();
+  assert(elEncoderValid && std::fabs(elEncoderAngle - 180) < 0.01f);
+  assert(elevationAngle == beforeElevation && azEncoderAngle == beforeAzimuth);
+  assert(driveCalls == beforeDrive && !azPointActive && !isTracking);
 }
 void testHealthAndDiagnostics() {
   reset();
@@ -726,9 +775,9 @@ int main() {
   testHigh = 100; testLow = 0; assert(readAzEncoderAngle() == previous && !azEncoderValid);
   testDateAndCompass(); testMagnetometerStartupAndRecovery(); testImmediateReference(); testCommands();
   testHealthAndDiagnostics(); testEstopTelemetry(); testLiveCompass(); testAsyncNetwork(); testReportedNorthWait();
-  testManualReference();
+  testManualReference(); testElevationEncoder();
   std::cout << "PASS: " << cases << " safe routes, fixed manual reference and compass fallback, "
-            << "magnetometer startup/recovery, Tesla scaling, command completion/no replay, timeout, health, E-stop and async network safety" << std::endl;
+            << "EL PWM readings/loss/recovery, magnetometer startup/recovery, Tesla scaling, command completion/no replay, timeout, health, E-stop and async network safety" << std::endl;
 }
 '''
 with tempfile.TemporaryDirectory(prefix='astt-firmware-test-') as directory:

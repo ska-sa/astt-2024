@@ -34,6 +34,7 @@ def get_reading(reading_id: int) -> Reading:
             movement_status,
             created_at,
             serial_log,
+            el_encoder_angle,
         ) = db_select_reading_outputs[0]
         return Reading(
             id=id,
@@ -56,6 +57,7 @@ def get_reading(reading_id: int) -> Reading:
             movement_status=movement_status,
             created_at=datetime.fromisoformat(str(created_at)),
             serial_log=serial_log,
+            el_encoder_angle=el_encoder_angle,
         )
     else:
         return None
@@ -88,6 +90,7 @@ def get_readings() -> list[Reading]:
             movement_status,
             created_at,
             serial_log,
+            el_encoder_angle,
         ) = db_select_reading_output
         
         readings.append(
@@ -112,6 +115,7 @@ def get_readings() -> list[Reading]:
                 movement_status=movement_status,
                 created_at=datetime.fromisoformat(str(created_at)),
                 serial_log=serial_log,
+                el_encoder_angle=el_encoder_angle,
             )
         )
     return readings
@@ -145,6 +149,7 @@ def get_latest_reading(telescope_id: int) -> Reading:
             movement_status,
             created_at,
             serial_log,
+            el_encoder_angle,
         ) = db_select_reading_outputs[-1]
         return Reading(
             id=id,
@@ -167,6 +172,7 @@ def get_latest_reading(telescope_id: int) -> Reading:
             movement_status=movement_status,
             created_at=datetime.fromisoformat(str(created_at)),
             serial_log=serial_log,
+            el_encoder_angle=el_encoder_angle,
         )
     else:
         raise HTTPException(
@@ -204,6 +210,7 @@ def get_readings_in_range(telescope_id: int, start: str, end: str) -> list[Readi
             movement_status,
             created_at,
             serial_log,
+            el_encoder_angle,
         ) = db_select_reading_output
 
         readings.append(
@@ -228,6 +235,7 @@ def get_readings_in_range(telescope_id: int, start: str, end: str) -> list[Readi
                 movement_status=movement_status,
                 created_at=datetime.fromisoformat(str(created_at)),
                 serial_log=serial_log,
+                el_encoder_angle=el_encoder_angle,
             )
         )
     return readings
@@ -260,6 +268,7 @@ def post_reading(reading: CreateReading) -> Reading:
         movement_status,
         created_at,
         serial_log,
+        el_encoder_angle,
     ) = db_select_reading_outputs[-1]
 
     return Reading(
@@ -283,6 +292,7 @@ def post_reading(reading: CreateReading) -> Reading:
         movement_status=movement_status,
         created_at=datetime.fromisoformat(str(created_at)),
         serial_log=serial_log,
+        el_encoder_angle=el_encoder_angle,
     )
 
 
@@ -312,6 +322,7 @@ def delete_reading(reading_id: int) -> Reading:
             movement_status,
             created_at,
             serial_log,
+            el_encoder_angle,
         ) = db_select_reading_outputs[0]
         reading = Reading(
             id=id,
@@ -334,6 +345,7 @@ def delete_reading(reading_id: int) -> Reading:
             movement_status=movement_status,
             created_at=datetime.fromisoformat(str(created_at)),
             serial_log=serial_log,
+            el_encoder_angle=el_encoder_angle,
         )
         success, _ = db.delete(table_name, criteria={"id": reading_id})
         if success:
@@ -375,6 +387,7 @@ def update_reading(reading_id: int, reading: Reading) -> Reading:
             movement_status,
             created_at,
             serial_log,
+            el_encoder_angle,
         ) = db_select_reading_outputs[0]
         return Reading(
             id=id,
@@ -397,6 +410,7 @@ def update_reading(reading_id: int, reading: Reading) -> Reading:
             movement_status=movement_status,
             created_at=datetime.fromisoformat(str(created_at)),
             serial_log=serial_log,
+            el_encoder_angle=el_encoder_angle,
         )
     else:
         return None

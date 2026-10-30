@@ -48,7 +48,8 @@ class Database:
             `health_status` VARCHAR(50),
             `movement_status` VARCHAR(50),
             `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
-            `serial_log` TEXT DEFAULT NULL
+            `serial_log` TEXT DEFAULT NULL,
+            `el_encoder_angle` DOUBLE DEFAULT NULL
         );
 
         CREATE TABLE IF NOT EXISTS position(
@@ -109,6 +110,8 @@ class Database:
         columns = self.cur.execute("PRAGMA table_info(reading)").fetchall()
         if "serial_log" not in [column[1] for column in columns]:
             self.cur.execute("ALTER TABLE reading ADD COLUMN serial_log TEXT DEFAULT NULL")
+        if "el_encoder_angle" not in [column[1] for column in columns]:
+            self.cur.execute("ALTER TABLE reading ADD COLUMN el_encoder_angle DOUBLE DEFAULT NULL")
 
     def migrate_command_table(self) -> None:
         columns = self.cur.execute("PRAGMA table_info(command)").fetchall()

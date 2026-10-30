@@ -52,6 +52,10 @@ verification and a checklist update when they complete a tracked item.
 
 ## Engineering rules
 
+- Keep the app UI minimal and simple. Do not add implementation notes, calibration
+  reminders, development status, duplicate readings or explanatory filler unless
+  the user asks for them. Put technical details in repository documentation or
+  the existing diagnostic view. Remove unused UI code with the feature it served.
 - Keep changes simple, focused, and junior-friendly. Prefer clear names, small
   functions, and direct control flow over clever abstractions.
 - Add Python type hints to function parameters and return values. Use explicit

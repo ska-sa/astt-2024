@@ -96,6 +96,28 @@ is rejected if subtracting the offset places it inside the blocked raw arc.
 
 ### Remote reading diagnostics
 
+EL raw encoder feedback is `el_encoder_angle: number | null`, independent of
+the existing MPU `elevation_angle`. A nullable database column is added on startup
+without replacing records. All reading CRUD/latest/history routes preserve it.
+New firmware sends the PWM angle directly, or null for missing pulses. For the
+first EL-reading firmware already on the device, the API also extracts a finite
+0–360° value from that sample's `elEnc=... EL_ENC=OK` log. It never substitutes
+MPU elevation or a command target for missing encoder data.
+
+CAM's live Position panel, history diagnostics, graph and the Readings table
+show **EL encoder (raw)**; zero is a real reading, null is Not available/a graph
+gap. The unused MPU elevation display/graph series is removed; its legacy API
+field remains compatible with existing firmware and commands. The Readings table refreshes
+every five seconds; CAM continues polling after transient request failures.
+The history graph retains its Load graph/date/sampling controls. No reading
+refresh issues a motion command or changes EL motor feedback/limits/zero.
+Rebuild the backend to load the new field/migration; the development frontend
+reloads its mounted source. No new firmware upload is required for the log
+compatibility path. A later normal upload will use the explicit field instead.
+On 2026-10-30, the operator approved restarting only ASTT's backend for this
+change. Its database volume was retained, the frontend rebuilt automatically,
+and the live API confirmed a raw EL value of 37.01° from the existing firmware.
+
 Each reading may contain `serial_log: string | null` through existing reading
 POST/PUT, latest, list, and range routes. The field is optional and limited to
 2048 characters; old payloads and rows return null. Firmware creates a bounded

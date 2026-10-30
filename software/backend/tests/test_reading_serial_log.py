@@ -85,14 +85,52 @@ class ReadingSerialLogTests(unittest.TestCase):
         migrated = database.cur.execute('SELECT * FROM reading').fetchone()
         columns = database.cur.execute('PRAGMA table_info(reading)').fetchall()
         database.conn.close()
-        self.assertEqual(migrated[:-1], original)
+        self.assertEqual(migrated[:-2], original)
+        self.assertIsNone(migrated[-2])
         self.assertIsNone(migrated[-1])
         self.assertEqual([column[1] for column in columns].count('serial_log'), 1)
+        self.assertEqual([column[1] for column in columns].count('el_encoder_angle'), 1)
         reading = get_reading(42)
-        self.assertEqual(reading.model_dump(exclude={'id', 'created_at', 'serial_log'}), payload)
+        self.assertEqual(reading.model_dump(exclude={'id', 'created_at', 'serial_log', 'el_encoder_angle'}), payload)
         self.assertEqual(str(reading.created_at), '2026-10-22 10:00:00')
         self.assertIsNone(reading.serial_log)
         self.assert_read_paths(reading)
+
+    def test_el_encoder_round_trip_and_missing_signal(self) -> None:
+        """All routes preserve raw values separately from MPU elevation and accept signal loss."""
+        payload = {**self.legacy_payload(), 'el_encoder_angle': 359.75}
+        reading = post_reading(CreateReading.model_validate(payload))
+        self.assertEqual(reading.el_encoder_angle, 359.75)
+        self.assertEqual(reading.elevation_angle, 12.5)
+        self.assert_read_paths(reading)
+        for angle in (0.0, None, 36.92):
+            updated = update_reading(reading.id, reading.model_copy(update={'el_encoder_angle': angle}))
+            self.assertEqual(updated.el_encoder_angle, angle)
+            self.assert_read_paths(updated)
+        self.assertEqual(delete_reading(reading.id), updated)
+
+    def test_el_encoder_legacy_log_compatibility(self) -> None:
+        """Already uploaded reading-only firmware supplies the same raw field via its valid log."""
+        payload = {**self.legacy_payload(), 'serial_log': 'el=0.00 elEnc=36.92 EL_ENC=OK target=-1.00'}
+        reading = post_reading(CreateReading.model_validate(payload))
+        self.assertEqual(reading.el_encoder_angle, 36.92)
+        self.assert_read_paths(reading)
+        # Earlier stored rows can be displayed without rewriting their data.
+        database = Database()
+        database.cur.execute('UPDATE reading SET el_encoder_angle = NULL WHERE id = ?', (reading.id,))
+        database.conn.commit()
+        database.conn.close()
+        self.assert_read_paths(reading)
+        self.assertEqual(CreateReading.model_validate({**payload, 'el_encoder_angle': 0}).el_encoder_angle, 0)
+        for log in ('elEnc=36.92 EL_ENC=ERR', 'elEnc=nan EL_ENC=ERR', 'elEnc=360.00 EL_ENC=OK',
+                    'elEnc=2.00 EL_ENC=OKAY', None, '', 'el=0.00'):
+            self.assertIsNone(CreateReading.model_validate({**payload, 'serial_log': log}).el_encoder_angle)
+
+    def test_el_encoder_rejects_invalid_typed_values(self) -> None:
+        """Do not store non-finite or out-of-range raw angles as valid feedback."""
+        for angle in (-1, 360, float('nan'), float('inf')):
+            with self.assertRaises(ValidationError):
+                CreateReading.model_validate({**self.legacy_payload(), 'el_encoder_angle': angle})
 
     def test_log_round_trips_create_update_read_history_and_delete(self) -> None:
         """Every existing route returns the same diagnostic that was stored."""

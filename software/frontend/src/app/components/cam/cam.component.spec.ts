@@ -89,6 +89,44 @@ describe('CamComponent', () => {
     expect(component).toBeTruthy();
   });
 
+  it('updates raw EL independently of MPU elevation, recovers polling and shows missing input', fakeAsync(() => {
+    spyOn(component, 'loadReading');
+    spyOn(component, 'getSources');
+    spyOn(component, 'loadGraph');
+    readingService.getLatestReading.and.returnValues(
+      of(sensorReading({ el_encoder_angle: 36.92, elevation_angle: 0 })),
+      throwError(() => new Error('temporary outage')),
+      of(sensorReading({ id: 102, el_encoder_angle: 0, elevation_angle: 0 })),
+      of(sensorReading({ id: 103, el_encoder_angle: null, elevation_angle: 0 }))
+    );
+    fixture.detectChanges();
+    const value: HTMLElement = fixture.nativeElement.querySelector('.el-encoder-reading');
+    tick(1000); fixture.detectChanges();
+    expect(value.textContent).toContain('36.92°');
+    tick(1000);
+    expect(component.isDeviceOnline).toBeFalse();
+    tick(1000); fixture.detectChanges();
+    expect(value.textContent).toContain('0.00°');
+    tick(1000); fixture.detectChanges();
+    expect(value.textContent).toContain('Not available');
+    expect(commandService.postCommand).not.toHaveBeenCalled();
+    component.ngOnDestroy();
+  }));
+
+  it('graphs only AZ and raw EL with gaps for missing encoder readings', () => {
+    component['updateChart']([
+      sensorReading({ el_encoder_angle: 359.5, elevation_angle: 0 }),
+      sensorReading({ id: 102, el_encoder_angle: 0, elevation_angle: 0 }),
+      sensorReading({ id: 103, el_encoder_angle: null }),
+      sensorReading({ id: 104 })
+    ]);
+    const series = component.chartOptions.data.find(item => item.name === 'EL encoder (raw)')!;
+    expect(series.dataPoints.map(point => point.y)).toEqual([359.5, 0, null, null]);
+    expect(series.connectNullData).toBeFalse();
+    expect(component.chartOptions.data.map(item => item.name)).toEqual(['Azimuth', 'EL encoder (raw)']);
+    expect(commandService.postCommand).not.toHaveBeenCalled();
+  });
+
   it('updates escaped latest diagnostics and actual health while retaining offline freshness styling', fakeAsync(() => {
     spyOn(component, 'loadReading');
     spyOn(component, 'getSources');

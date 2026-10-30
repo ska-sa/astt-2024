@@ -8,7 +8,7 @@ import { getUser } from '../../signal';
 import { ActivatedRoute } from '@angular/router';
 import { Reading } from '../../interfaces/reading';
 import { ReadingService } from '../../services/reading.service';
-import { catchError, finalize, interval, map, Observable, of, shareReplay, Subscription, switchMap } from 'rxjs';
+import { catchError, EMPTY, exhaustMap, finalize, interval, map, Observable, of, shareReplay, Subscription, switchMap } from 'rxjs';
 import { SourceService } from '../../services/source.service';
 import { Source } from '../../interfaces/source';
 import { CreateSource } from '../../interfaces/create-source';
@@ -19,13 +19,14 @@ import { TelescopeService } from '../../services/telescope.service';
 
 interface ChartDataPoint {
   x: Date;
-  y: number;
+  y: number | null;
 }
 
 interface ChartSeries {
   type: string;
   name: string;
   showInLegend: boolean;
+  connectNullData?: boolean;
   dataPoints: ChartDataPoint[];
 }
 
@@ -225,7 +226,12 @@ export class CamComponent {
 
     this.pollSubscription = interval(1000)
       .pipe(
-        switchMap(() => this.readingService.getLatestReading(this.telescopeId!))
+        exhaustMap(() => this.readingService.getLatestReading(this.telescopeId!).pipe(
+          catchError(() => {
+            this.isDeviceOnline = false;
+            return EMPTY;
+          })
+        ))
       )
       .subscribe({
         next: (reading: Reading) => {
@@ -331,7 +337,7 @@ export class CamComponent {
 
   private updateChart(readings: Reading[]): void {
     const azimuthPoints: ChartDataPoint[] = [];
-    const elevationPoints: ChartDataPoint[] = [];
+    const encoderPoints: ChartDataPoint[] = [];
 
     for (const reading of readings) {
       const readingTime: number | null = this.getReadingTime(reading);
@@ -341,15 +347,15 @@ export class CamComponent {
 
       const timestamp: Date = new Date(readingTime);
       azimuthPoints.push({ x: timestamp, y: reading.azimuth_angle });
-      elevationPoints.push({ x: timestamp, y: reading.elevation_angle });
+      encoderPoints.push({ x: timestamp, y: reading.el_encoder_angle ?? null });
     }
 
-    this.chartOptions = this.createChartOptions(azimuthPoints, elevationPoints);
+    this.chartOptions = this.createChartOptions(azimuthPoints, encoderPoints);
   }
 
   private createChartOptions(
     azimuthPoints: ChartDataPoint[],
-    elevationPoints: ChartDataPoint[]
+    encoderPoints: ChartDataPoint[]
   ): ChartOptions {
     return {
       animationEnabled: true,
@@ -373,9 +379,10 @@ export class CamComponent {
         },
         {
           type: 'line',
-          name: 'Elevation',
+          name: 'EL encoder (raw)',
           showInLegend: true,
-          dataPoints: elevationPoints
+          connectNullData: false,
+          dataPoints: encoderPoints
         }
       ]
     };
