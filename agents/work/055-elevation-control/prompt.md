@@ -1,74 +1,41 @@
-# ASTT-055: Add elevation feedback and motor control
+# ASTT-055: Basic encoder-feedback EL Point movement
 
-**Status:** Needs hardware verification
-**Area:** Hardware and integration
+**Status:** DONE — operator confirms both directions work, 2026-10-30
+**Area:** Hardware | Integration
 
-## Context
+## Context and goal
 
-The integrated firmware currently controls azimuth through L298 channel A and
-reports a placeholder elevation value. Elevation will initially use a second,
-horizontally mounted MPU6050 as its position reference because no elevation
-encoder is available yet.
+Preserve working AZ and make the connected EL motor follow Point targets using
+its encoder. The operator confirms the same PWM encoder as AZ on GPIO35, with
+physical switches opening motor power, and has now accepted both EL directions.
 
-The existing wiring diagram is reference-only. The current firmware remains the
-source of truth for active pins, including I2C on GPIO21 and GPIO22.
+## Delivered scope
 
-## Goal
+- Existing L298 channel-B pins GPIO26/25/32; no wiring or network changes.
+- GPIO35 feedback, displayed Elevation Angle and inverse target conversion use
+  the same hardcoded `EL_ENCODER_OFFSET=0` reference.
+- `EL_MOTOR_SIGN=-1`, EL PWM 255/255, AZ PWM 210/255. EL continues to its target
+  within the configured 1° tolerance; no fixed movement-duration cutoff.
+- Keep E-stop, feedback-loss, communication-timeout and no-replay behavior.
+- Preserve actual readings separately from commands, with a minimal UI.
 
-Add a small, readable elevation-control path that accepts Point and Track
-elevation targets, measures elevation from a second MPU6050, and drives L298
-channel B without changing the existing azimuth behaviour.
+## Acceptance
 
-## In scope
+- [x] Operator confirms encoder reading updates in the UI.
+- [x] Operator confirms EL movement works in both directions after reversing sign.
+- [x] Existing AZ remains working per operator feedback.
+- [x] Implementation and operator result are recorded; remaining work is assigned below.
 
-- Use the second MPU6050 at I2C address `0x69` with AD0 tied to 3.3 V.
-- Read its accelerometer and calculate an initial 0–90 degree elevation angle.
-- Add configurable elevation sign and zero-offset constants for calibration.
-- Use GPIO32 for IN3, GPIO33 for IN4, and GPIO18 for ENB/PWM.
-- Reserve GPIO35 for a future elevation encoder without using it for control.
-- Read Point elevation from `target_el_angle`.
-- Use the calculated source elevation during Track mode.
-- Stop both motors when E-stop is active.
-- Continue posting measured elevation through the existing reading payload.
+## Remaining scope in separate tasks
 
-## Out of scope
-
-- Final MPU mounting-axis and zero calibration.
-- Physical wiring, Veroboard layout, flashing, or energising either motor.
-- Elevation encoder support.
-- Claiming closed-loop elevation qualification without bench testing.
-
-## Decisions and assumptions
-
-- The existing MPU6050 remains at `0x68`; the elevation MPU6050 uses `0x69`.
-- The first angle formula assumes the elevation MPU X axis changes with tilt.
-  Axis direction and zero offset remain named constants for easy correction.
-- Elevation movement is limited to 0–90 degrees in software.
-- The proposed L298 and reserved encoder pins must be confirmed against the
-  final physical wiring before the Veroboard design resumes.
-
-## Acceptance criteria
-
-- [x] Both MPU6050 devices are addressed independently.
-- [x] Point commands update both AZ and EL targets.
-- [x] Track commands update AZ and EL targets from the same source calculation.
-- [x] Missing elevation feedback prevents elevation movement.
-- [x] Software limits prevent motion below 0 or above 90 degrees.
-- [x] E-stop stops both L298 channels.
-- [x] GPIO35 is documented but unused as the future elevation encoder input.
-- [ ] Firmware syntax/build checks pass where local tooling allows.
-- [x] No hardware is flashed or powered during this ticket.
-
-## Likely files
-
-- `hardware/wemos_lilon32/wemos_lilon32.ino`
-- `hardware/README.md`
-- `agents/work/055-elevation-control/prompt.md`
+This closes the basic Point movement task, not quantitative motion qualification.
+Measured stops/software protection remain ASTT-044/051; recorded midpoint zero
+ASTT-042; signed coordinates and combined-axis return-to-zero ASTT-094/078;
+repeatability, stopping and accuracy ASTT-045/046/050/061–068. Replace the slow
+EL motor under ASTT-096. Sensor references and EL celestial Track are deferred.
 
 ## Verification
 
-- Check all proposed pins against the LOLIN32 and existing firmware assignments.
-- Check I2C addresses `0x68` and `0x69` do not conflict.
-- Compile with Arduino CLI or PlatformIO when the toolchain is available.
-- Bench-test MPU orientation and motor direction with the motor mechanically
-  disconnected before any full movement test.
+See completion.md for software checks and the dated operator confirmation.
+No physical measurements or fault tests are inferred from the user's report.
+No additional motor commands, upload, commit or push are part of this status update.

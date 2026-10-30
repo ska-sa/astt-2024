@@ -52,7 +52,7 @@
               <strong>Position</strong>
               <div class="ps-2">
                 Azimuth Angle: {{ reading?.azimuth_angle }}&deg;<br>
-                <span class="el-encoder-reading">EL encoder (raw): {{ reading?.el_encoder_angle != null ? (reading?.el_encoder_angle | number:'1.2-2') + '°' : 'Not available' }}</span>
+                <span class="el-encoder-reading">Elevation Angle: {{ reading?.el_encoder_angle != null ? (reading?.elevation_angle | number:'1.2-2') + '°' : 'Not available' }}</span>
               </div>
               <strong>Gyroscope</strong>
               <div class="ps-2">
@@ -120,19 +120,16 @@
                 >
               </div>
               <div class="col">
-                <label class="form-label">Elevation Angle (0° - 90°)</label>
+                <label class="form-label">Elevation Angle (0° - 360°)</label>
                 <input
                   class="form-control"
                   type="number"
                   [(ngModel)]="elevation_angle"
                   min="0"
-                  max="90"
-                  placeholder="0 - 90"
+                  max="360"
+                  placeholder="0 - 360"
                 >
               </div>
-            </div>
-            <div class="text-center">
-              <small class="text-muted">Azimuth wraps around horizon, Elevation is vertical angle from ground</small>
             </div>
           </div>
 
@@ -247,7 +244,7 @@
             <summary class="text-primary">Show more: reading diagnostics</summary>
             <div *ngFor="let reading of historicalReadings" class="border-bottom py-2">
               <div class="small">Reading #{{ reading.id }} — {{ reading.created_at | date:'medium' }} — <span [ngClass]="getHealthStatusClass(reading.health_status)">{{ reading.health_status }}</span></div>
-              <div class="small">EL encoder (raw): {{ reading.el_encoder_angle != null ? (reading.el_encoder_angle | number:'1.2-2') + '°' : 'Not available' }}</div>
+              <div class="small">Elevation Angle: {{ reading.el_encoder_angle != null ? (reading.elevation_angle | number:'1.2-2') + '°' : 'Not available' }}</div>
               <pre class="small mb-0" style="white-space: pre-wrap; overflow-wrap: anywhere;">{{ reading.serial_log || 'No diagnostics recorded for this reading.' }}</pre>
             </div>
           </details>

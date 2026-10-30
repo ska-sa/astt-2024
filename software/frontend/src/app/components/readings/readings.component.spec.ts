@@ -46,10 +46,10 @@ describe('ReadingsComponent', () => {
     expect(component).toBeTruthy();
   });
 
-  it('displays raw EL including zero and missing values without using the MPU angle', () => {
+  it('displays referenced elevation including zero and missing feedback', () => {
     component.readings = [
-      sensorReading({ el_encoder_angle: 36.92, elevation_angle: 0 }),
-      sensorReading({ el_encoder_angle: 0 }),
+      sensorReading({ el_encoder_angle: 16.92, elevation_angle: 36.92 }),
+      sensorReading({ el_encoder_angle: 0, elevation_angle: 0 }),
       sensorReading({ el_encoder_angle: null }), sensorReading()
     ];
     fixture.detectChanges();

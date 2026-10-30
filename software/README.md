@@ -96,27 +96,35 @@ is rejected if subtracting the offset places it inside the blocked raw arc.
 
 ### Remote reading diagnostics
 
-EL raw encoder feedback is `el_encoder_angle: number | null`, independent of
-the existing MPU `elevation_angle`. A nullable database column is added on startup
-without replacing records. All reading CRUD/latest/history routes preserve it.
-New firmware sends the PWM angle directly, or null for missing pulses. For the
-first EL-reading firmware already on the device, the API also extracts a finite
-0–360° value from that sample's `elEnc=... EL_ENC=OK` log. It never substitutes
-MPU elevation or a command target for missing encoder data.
+The firmware sends `elevation_angle = norm360(el_encoder_angle + EL_ENCODER_OFFSET)`.
+The hardcoded offset is initially zero; raw `el_encoder_angle: number | null`
+remains available for feedback diagnostics and recording stops. The nullable
+column migration preserves existing records and every reading route includes it.
+For the first reading-only firmware, a valid `elEnc=... EL_ENC=OK` log supplies
+missing encoder data. Its `EL_MPU=` marker identifies the older zero-offset frame,
+so the API exposes that encoder value as elevation too. New firmware's referenced
+`elevation_angle` is preserved, without applying an offset again.
 
-CAM's live Position panel, history diagnostics, graph and the Readings table
-show **EL encoder (raw)**; zero is a real reading, null is Not available/a graph
-gap. The unused MPU elevation display/graph series is removed; its legacy API
-field remains compatible with existing firmware and commands. The Readings table refreshes
-every five seconds; CAM continues polling after transient request failures.
-The history graph retains its Load graph/date/sampling controls. No reading
-refresh issues a motion command or changes EL motor feedback/limits/zero.
-Rebuild the backend to load the new field/migration; the development frontend
-reloads its mounted source. No new firmware upload is required for the log
-compatibility path. A later normal upload will use the explicit field instead.
-On 2026-10-30, the operator approved restarting only ASTT's backend for this
-change. Its database volume was retained, the frontend rebuilt automatically,
-and the live API confirmed a raw EL value of 37.01° from the existing firmware.
+CAM's Position panel, history diagnostics, graph and Readings table consistently
+show **Elevation Angle**, matching **Azimuth Angle**. Zero is a real reading;
+missing encoder feedback shows Not available/a graph gap. The Readings table
+refreshes every five seconds and CAM recovers after transient poll failures.
+Reading refreshes never submit motion commands. The history graph retains its
+Load graph/date/sampling controls. Magnetic fields remain Tesla in the API.
+
+Point temporarily accepts EL angles from 0 to 360 degrees for the encoder tests.
+This is the angle domain, not a measured travel range. EL Point continues
+until it reaches the encoder target within 1° tolerance; the firmware stops on
+arrival, lost/stale feedback, E-stop or ten seconds without command communication. Physical switches cut motor power while stops are being measured.
+EL celestial tracking is disabled for this phase; signed midpoint coordinates
+and software travel protection follow the recorded endpoints. The hold button
+uses the latest referenced elevation and requires valid encoder feedback.
+
+Rebuild/recreate only ASTT's backend to load compatibility changes, preserving
+its database volume. The development frontend reloads mounted source. The operator
+approved the backend restart on 2026-10-30; the initial reading/UI changes were
+committed and pushed as `4da6e3c`. The new EL movement/reference patch is also
+operator-accepted in both directions and approved for commit/push on 2026-10-30.
 
 Each reading may contain `serial_log: string | null` through existing reading
 POST/PUT, latest, list, and range routes. The field is optional and limited to
@@ -128,7 +136,7 @@ readings list expose escaped text under **Show more**; it is never rendered as H
 The line records angles, targets, requested PWM, sensor availability and values,
 command events, site source, and previous HTTP results. Manual health is FAULT for
 E-stop, missing AZ encoder feedback or network-worker failure; DEGRADED for
-missing magnetic/date diagnostics, MPUs or GPS fix,
+missing magnetic/date diagnostics, MPU, EL encoder or GPS fix,
 and otherwise OK; none of these states qualifies heading accuracy. E-stop
 continues posting readings/logs with motor outputs off and command polling paused.
 
@@ -149,15 +157,16 @@ Online/Offline label is added. These read-only updates never issue commands.
 HTTP now runs in an ESP32 worker with copied snapshots so its 2 s/5 s requests
 do not intentionally interrupt motor PWM. Command IDs, E-stop, encoder limits
 and the 10 s communication timeout remain authoritative; stale replies cannot
-resume stopped commands. AZ minimum PWM is 210 (was 140), maximum 255. Physical
+resume stopped commands. AZ minimum PWM is 210; EL minimum is 255. Both maxima are 255. Physical
 smoothness and stopping still need supervised testing after operator upload.
 After flashing/rebooting, manually prepare alignment, then submit a new command:
 the firmware deliberately ignores commands saved before startup. The existing
 UI popup confirms command submission, not arrival. Firmware `AZ POINT COMPLETE`
 latches the AZ stop only; repeated command IDs cannot restart it after base
 movement. A new command is required after completion, communication timeout, or
-E-stop. The EL draft is unchanged and physically unqualified. `ON TARGET` still
-requires valid AZ and EL feedback; the extra arrival popup remains deferred.
+E-stop. EL Point also latches completion, with physical stopping still unqualified.
+`ON TARGET` requires valid AZ/EL feedback and both completion latches; the extra
+arrival popup remains deferred.
 
 ### Software hold (ASTT-084)
 
@@ -192,10 +201,11 @@ emergencies; its qualification remains ASTT-051. No new API endpoint is added.
 | ASTT-085 | Point tests passed; final calibration pending | Encoder-only AZ reference, shared JSON limits, and Point range validation. |
 | ASTT-043 | Manual reference implemented; independent accuracy pending | Fixed midpoint north, unchanged raw limits, encoder-derived AZ and separate magnetic diagnostics; no new controls. |
 | ASTT-092 | Software verified | Optional reading diagnostics, preserved legacy rows, actual sensor health, and escaped Show more in reading views. |
-| ASTT-093 | Software verified; powered checks pending | HTTP worker keeps feedback active during requests, minimum AZ PWM is 210, and device rows use latest-reading health/freshness. |
+| ASTT-093 | Software verified; powered checks pending | HTTP worker keeps feedback active during requests, motor PWM no longer pauses for HTTP, and device rows use latest-reading health/freshness. |
 
-Physical elevation under ASTT-055 is reopened, not complete. Its feedback and
-mounting clarification remain planning work separate from the verified AZ change.
+ASTT-055 basic encoder-feedback EL Point movement is complete per operator
+confirmation in both directions. Measured limits, zero and full qualification
+remain open; ASTT-096 tracks replacement of the slow EL motor.
 
 ## Software verification
 

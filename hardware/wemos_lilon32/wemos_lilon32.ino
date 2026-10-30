@@ -32,7 +32,7 @@ const int EL_IN2 = 25;  // L298 IN4
 const int AZ_ENA = 33;
 const int EL_ENA = 32;  // L298 ENB
 const int AZ_ENCODER_PIN = 19;
-const int EL_ENCODER_PIN = 35;  // same PWM encoder as AZ; readings only for now
+const int EL_ENCODER_PIN = 35;  // same PWM encoder as AZ
 const int ESTOP_PIN = 23;
 
 
@@ -49,19 +49,19 @@ const bool USE_MANUAL_AZ_REFERENCE = true;
 const float encoderAtNorth = 267.8f;
 const float AZ_TOLERANCE = 1.0;
 const float AZ_RAMP_RANGE = 60.0;
-const int AZ_MIN_PWM = 210;  // 1.5 times the previous 140; qualify stopping at this power
+const int AZ_MIN_PWM = 210;
 const int AZ_MAX_PWM = 255;
 
 
 // ---------- elevation control ----------
 const float EL_MIN = 0.0;
-const float EL_MAX = 90.0;
+const float EL_MAX = 360.0;  // encoder angle domain; physical switches protect test travel
+const float EL_ENCODER_OFFSET = 0.0f;  // displayed angle = encoder + offset; future sensor reference
 const float EL_TOLERANCE = 1.0;
 const float EL_RAMP_RANGE = 30.0;
-const int EL_MIN_PWM = 140;
+const int EL_MIN_PWM = 255;  // full duty for the current EL movement test
 const int EL_MAX_PWM = 255;
-const float EL_MPU_SIGN = 1.0;     // reverse if the measured angle moves backwards
-const float EL_ZERO_OFFSET = 0.0;  // set after the horizontal position is measured
+const int EL_MOTOR_SIGN = -1;  // positive drive decreases the encoder reading
 
 
 // ---------- encoder ----------
@@ -90,6 +90,8 @@ int lastCommandId = 0;
 bool commandBaselineReady = false;
 bool azPointActive = false;
 bool azPointComplete = false;
+bool elPointActive = false;
+bool elPointComplete = false;
 
 
 // ---------- tracking ----------
@@ -163,19 +165,13 @@ unsigned long magLastAttempt = 0;
 unsigned long magInitializedAt = 0;
 
 const uint8_t MPU_ADDR = 0x68;
-const uint8_t EL_MPU_ADDR = 0x69;
 bool mpuOk = false;
-bool elMpuOk = false;
 float mpuAccelX = 0.0;
 float mpuAccelY = 0.0;
 float mpuAccelZ = 0.0;
 float mpuGyroX = 0.0;
 float mpuGyroY = 0.0;
 float mpuGyroZ = 0.0;
-float elMpuAccelX = 0.0;
-float elMpuAccelY = 0.0;
-float elMpuAccelZ = 0.0;
-float elevationMpuPitch = 0.0;
 float magneticFieldX = 0.0;
 float magneticFieldY = 0.0;
 float magneticFieldZ = 0.0;
@@ -233,24 +229,6 @@ void updateLevelAngles() {
 }
 
 
-bool readElevationMpu() {
-  float gyroX, gyroY, gyroZ;
-  if (!readMpuValues(EL_MPU_ADDR, elMpuAccelX, elMpuAccelY, elMpuAccelZ,
-                     gyroX, gyroY, gyroZ)) {
-    return false;
-  }
-
-  float pitch = atan2(-elMpuAccelX,
-                      sqrt(elMpuAccelY * elMpuAccelY + elMpuAccelZ * elMpuAccelZ));
-  elevationMpuPitch = pitch * 180.0 / PI;
-
-  // Relative elevation removes the small tilt left after manual base levelling.
-  float relativeElevation = EL_MPU_SIGN * elevationMpuPitch
-                            - levelPitch + EL_ZERO_OFFSET;
-  elevationAngle = constrain(relativeElevation, EL_MIN, EL_MAX);
-  return true;
-}
-
 bool initMpu(uint8_t address) {
   Wire.beginTransmission(address);
   Wire.write(0x6B);
@@ -304,6 +282,16 @@ float encoderToTrueAzimuth(float encoderAngle) {
 
 float trueAzimuthToEncoder(float trueAzimuth) {
   return norm360(trueAzimuth - azEncoderOffset);
+}
+
+
+float encoderToElevation(float encoderAngle) {
+  return norm360(encoderAngle + EL_ENCODER_OFFSET);
+}
+
+
+float elevationToEncoder(float angle) {
+  return norm360(angle - EL_ENCODER_OFFSET);
 }
 
 
@@ -418,7 +406,7 @@ float readAzEncoderAngle() {
 }
 
 
-// Diagnostic only: do not feed this raw angle into the existing EL motor draft.
+// EL stays in encoder coordinates until the physical stops and midpoint are recorded.
 void readElEncoderAngle() {
   if (millis() - lastElEncoderRead < 100) return;
   lastElEncoderRead = millis();
@@ -563,7 +551,7 @@ void driveElevationMotor(int pwm, int direction) {
 }
 
 
-// bigger error means more power, but never below AZ_MIN_PWM or we just hum
+// Stop inside tolerance; otherwise use the configured PWM range.
 int computeAzimuthPwm(float errorSize) {
   if (errorSize < AZ_TOLERANCE) return 0;
   float scale = errorSize / AZ_RAMP_RANGE;
@@ -577,6 +565,33 @@ int computeElevationPwm(float errorSize) {
   float scale = errorSize / EL_RAMP_RANGE;
   if (scale > 1.0) scale = 1.0;
   return EL_MIN_PWM + (int)((EL_MAX_PWM - EL_MIN_PWM) * scale);
+}
+
+
+// Supervised Point tests only; no assumed EL software stops or MPU reference.
+int controlElevation(unsigned long now) {
+  if (!elPointActive || isTracking) {
+    stopElevationMotor();
+    return 0;
+  }
+  if (!elEncoderValid || !isfinite(elEncoderAngle) || now - lastElEncoderRead > 250) {
+    elPointActive = false;
+    stopElevationMotor();
+    commandMessage = "EL_ENCODER_UNAVAILABLE_SEND_NEW_COMMAND";
+    return 0;
+  }
+  float error = signedAngleDifference(elEncoderAngle, elevationToEncoder(apiElTarget));
+  int pwm = computeElevationPwm(fabs(error));
+  if (pwm == 0) {
+    stopElevationMotor();
+    elPointActive = false;
+    elPointComplete = true;
+    commandMessage = "EL_POINT_COMPLETE";
+  } else {
+    driveElevationMotor(pwm, (error > 0 ? 1 : -1) * EL_MOTOR_SIGN);
+    movementStatus = "MOVING";
+  }
+  return pwm;
 }
 
 
@@ -826,7 +841,7 @@ void updateHealthStatus() {
   if (estopWasActive || !networkReady || !azEncoderValid
       || (!USE_MANUAL_AZ_REFERENCE && (!azHeadingValid || !isfinite(declination)))) {
     healthStatus = "FAULT";
-  } else if (!mpuOk || !elMpuOk || !GPS.fix || !azHeadingValid || !isfinite(declination)) {
+  } else if (!mpuOk || !elEncoderValid || !GPS.fix || !azHeadingValid || !isfinite(declination)) {
     healthStatus = "DEGRADED";
   } else healthStatus = "OK";
 }
@@ -841,7 +856,7 @@ void readSensors() {
   trueHeading = computeTrueHeading();
   // Manual AZ comes only from the encoder; raw compass heading stays diagnostic.
   azimuthAngle = USE_MANUAL_AZ_REFERENCE ? encoderToTrueAzimuth(azEncoderAngle) : trueHeading;
-  elMpuOk = readElevationMpu();
+  if (elEncoderValid) elevationAngle = encoderToElevation(elEncoderAngle);
   updateHealthStatus();
 }
 
@@ -850,7 +865,7 @@ void readSensors() {
 String buildDiagnosticLine(float encoderAngle, float encoderTarget, int direction, int azPwm, int elPwm) {
   char line[1024];
   snprintf(line, sizeof(line),
-           "ms=%lu health=%s state=%s cmd=%d last_event=%s enc=%.2f az=%.2f el=%.2f elEnc=%.2f EL_ENC=%s target=%.2f/%.2f rawTarget=%.2f dir=%d reqPWM=%d/%d magnetic=%.2f decl=%.4f true=%.2f offset=%.2f ref=%s ENC=%s MAG=%s heading=%s mag_uT=%.2f/%.2f/%.2f MPU=%s accel_ms2=%.2f/%.2f/%.2f gyro_dps=%.2f/%.2f/%.2f base=%.1f/%.1f EL_MPU=%s GPS=%s lat=%.5f lon=%.5f alt_m=%.1f site=%s http_prev(command/reading/metadata)=%d/%d/%d",
+           "ms=%lu health=%s state=%s cmd=%d last_event=%s enc=%.2f az=%.2f el=%.2f elEnc=%.2f EL_ENC=%s target=%.2f/%.2f rawTarget=%.2f dir=%d reqPWM=%d/%d magnetic=%.2f decl=%.4f true=%.2f offset=%.2f ref=%s ENC=%s MAG=%s heading=%s mag_uT=%.2f/%.2f/%.2f MPU=%s accel_ms2=%.2f/%.2f/%.2f gyro_dps=%.2f/%.2f/%.2f base=%.1f/%.1f GPS=%s lat=%.5f lon=%.5f alt_m=%.1f site=%s http_prev(command/reading/metadata)=%d/%d/%d",
            millis(), healthStatus.c_str(), movementStatus.c_str(), lastCommandId, commandMessage.c_str(),
            encoderAngle, azimuthAngle, elevationAngle, elEncoderAngle, elEncoderValid ? "OK" : "ERR",
            apiAzTarget, apiElTarget, encoderTarget,
@@ -862,7 +877,7 @@ String buildDiagnosticLine(float encoderAngle, float encoderTarget, int directio
            magneticFieldX * 1.0e6f, magneticFieldY * 1.0e6f, magneticFieldZ * 1.0e6f,
            mpuOk ? "OK" : "ERR", mpuAccelX * 9.80665f, mpuAccelY * 9.80665f, mpuAccelZ * 9.80665f,
            mpuGyroX, mpuGyroY, mpuGyroZ, levelRoll, levelPitch,
-           elMpuOk ? "OK" : "ERR", GPS.fix ? "FIX" : "NO_FIX", latitude, longitude, altitude,
+           GPS.fix ? "FIX" : "NO_FIX", latitude, longitude, altitude,
            GPS.fix ? "GPS" : "DEFAULT", lastCommandHttp, lastReadingHttp, lastMetadataHttp);
   return String(line);
 }
@@ -928,6 +943,8 @@ void clearCommandTargets() {
   stopElevationMotor();
   azPointActive = false;
   azPointComplete = false;
+  elPointActive = false;
+  elPointComplete = false;
   apiAzTarget = -1.0f;
   apiElTarget = -1.0f;
   isTracking = false;
@@ -954,6 +971,10 @@ void finishAzPoint() {
 
 bool startPoint(float azimuth, float elevation) {
   if (!checkAzimuthFeedback()) return false;
+  if (!elEncoderValid || !isfinite(elEncoderAngle)) {
+    commandMessage = "EL_ENCODER_UNAVAILABLE_SEND_NEW_COMMAND";
+    return false;
+  }
   if (!isfinite(azimuth) || !isfinite(elevation) || azimuth < AZ_MIN || azimuth > AZ_MAX
       || elevation < EL_MIN || elevation > EL_MAX) {
     commandMessage = "POINT_REJECTED_INVALID_ANGLES";
@@ -967,9 +988,11 @@ bool startPoint(float azimuth, float elevation) {
     return false;
   }
   apiAzTarget = norm360(azimuth);
-  apiElTarget = elevation;
+  apiElTarget = norm360(elevation);
   azPointActive = true;
   azPointComplete = false;
+  elPointActive = true;
+  elPointComplete = false;
   isTracking = false;
   lastApiTime = millis();
   commandMessage = "POINT_ACCEPTED";
@@ -1124,9 +1147,6 @@ void setup() {
   if (mpuOk) Serial.println("mpu6050 ready");
   else Serial.println("no mpu6050");
 
-  elMpuOk = initMpu(EL_MPU_ADDR) && readElevationMpu();
-  if (elMpuOk) Serial.println("elevation mpu6050 ready");
-  else Serial.println("no elevation mpu6050");
 
 
   connectWifi();
@@ -1203,7 +1223,7 @@ void loop() {
       commandMessage = "TRACK_FAILED_CLOCK_OR_PARAMETERS";
     } else {
       apiAzTarget = computed;
-      apiElTarget = (trackEl >= EL_MIN && trackEl <= EL_MAX) ? trackEl : -1.0f;
+      apiElTarget = (trackEl >= 0.0f && trackEl <= 90.0f) ? trackEl : -1.0f;
       if (apiElTarget < 0) commandMessage = "TRACK_SOURCE_OUTSIDE_EL_RANGE";
     }
   }
@@ -1255,34 +1275,11 @@ void loop() {
   }
 
 
-  bool elTargetFresh = (apiElTarget >= EL_MIN && apiElTarget <= EL_MAX)
-                       && (now - lastApiTime < SOURCE_TIMEOUT);
-  float elError = 0.0;
-  int elPwm = 0;
-
-  if (!referenceReady || !mpuOk || !elMpuOk || !elTargetFresh) {
-    stopElevationMotor();
-  } else {
-    float signedElError = apiElTarget - elevationAngle;
-    elError = fabs(signedElError);
-    int elDirection = (signedElError >= 0) ? 1 : -1;
-    elPwm = computeElevationPwm(elError);
-
-    bool atLowerLimit = elDirection < 0 && elevationAngle <= EL_MIN;
-    bool atUpperLimit = elDirection > 0 && elevationAngle >= EL_MAX;
-    if (elPwm == 0 || atLowerLimit || atUpperLimit) {
-      stopElevationMotor();
-    } else {
-      driveElevationMotor(elPwm, elDirection);
-      if (movementStatus == "IDLE") {
-        movementStatus = isTracking ? "TRACKING" : "MOVING";
-      }
-    }
-  }
-
-  if (referenceReady && azEncoderValid && mpuOk && elMpuOk && azTargetFresh && elTargetFresh
-      && !isTracking && azPointComplete && azPwm == 0 && elPwm == 0
-      && azError < AZ_TOLERANCE && elError < EL_TOLERANCE) {
+  int elPwm = controlElevation(now);
+  if (referenceReady && azEncoderValid && elEncoderValid && !isTracking
+      && azPointComplete && elPointComplete && azPwm == 0 && elPwm == 0
+      && azError < AZ_TOLERANCE
+      && fabs(signedAngleDifference(elevationAngle, apiElTarget)) < EL_TOLERANCE) {
     movementStatus = "ON TARGET";
   }
 

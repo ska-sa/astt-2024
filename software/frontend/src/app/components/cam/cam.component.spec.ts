@@ -42,6 +42,7 @@ describe('CamComponent', () => {
       created_at: new Date(Date.now() - 1000).toISOString(),
       azimuth_angle: 180,
       elevation_angle: 45,
+      el_encoder_angle: overrides.elevation_angle ?? 45,
       latitude: 0,
       longitude: 0,
       altitude: 0,
@@ -89,12 +90,12 @@ describe('CamComponent', () => {
     expect(component).toBeTruthy();
   });
 
-  it('updates raw EL independently of MPU elevation, recovers polling and shows missing input', fakeAsync(() => {
+  it('displays referenced elevation, recovers polling and shows missing input', fakeAsync(() => {
     spyOn(component, 'loadReading');
     spyOn(component, 'getSources');
     spyOn(component, 'loadGraph');
     readingService.getLatestReading.and.returnValues(
-      of(sensorReading({ el_encoder_angle: 36.92, elevation_angle: 0 })),
+      of(sensorReading({ el_encoder_angle: 16.92, elevation_angle: 36.92 })),
       throwError(() => new Error('temporary outage')),
       of(sensorReading({ id: 102, el_encoder_angle: 0, elevation_angle: 0 })),
       of(sensorReading({ id: 103, el_encoder_angle: null, elevation_angle: 0 }))
@@ -113,17 +114,17 @@ describe('CamComponent', () => {
     component.ngOnDestroy();
   }));
 
-  it('graphs only AZ and raw EL with gaps for missing encoder readings', () => {
+  it('graphs referenced AZ and EL with gaps for missing encoder readings', () => {
     component['updateChart']([
-      sensorReading({ el_encoder_angle: 359.5, elevation_angle: 0 }),
+      sensorReading({ el_encoder_angle: 339.5, elevation_angle: 359.5 }),
       sensorReading({ id: 102, el_encoder_angle: 0, elevation_angle: 0 }),
       sensorReading({ id: 103, el_encoder_angle: null }),
-      sensorReading({ id: 104 })
+      sensorReading({ id: 104, el_encoder_angle: undefined })
     ]);
-    const series = component.chartOptions.data.find(item => item.name === 'EL encoder (raw)')!;
+    const series = component.chartOptions.data.find(item => item.name === 'Elevation Angle')!;
     expect(series.dataPoints.map(point => point.y)).toEqual([359.5, 0, null, null]);
     expect(series.connectNullData).toBeFalse();
-    expect(component.chartOptions.data.map(item => item.name)).toEqual(['Azimuth', 'EL encoder (raw)']);
+    expect(component.chartOptions.data.map(item => item.name)).toEqual(['Azimuth Angle', 'Elevation Angle']);
     expect(commandService.postCommand).not.toHaveBeenCalled();
   });
 
@@ -406,10 +407,10 @@ describe('CamComponent', () => {
     expect(component.commandError).toContain('Azimuth must be a number');
 
     component.azimuth_angle = 180;
-    component.elevation_angle = 100;
+    component.elevation_angle = 361;
     component.startPointing();
     expect(component.commandError).toContain('Elevation must be a number');
-    expect(component.elevation_angle).toBe(100);
+    expect(component.elevation_angle).toBe(361);
     expect(commandService.postCommand).not.toHaveBeenCalled();
   });
 
@@ -564,7 +565,7 @@ describe('CamComponent', () => {
       component.startTracking();
       expect(commandService.postCommand.calls.mostRecent().args[0].command_type).toBe('track');
 
-      const reading: Reading = sensorReading({ azimuth_angle: 280.123456, elevation_angle: 12.75 });
+      const reading: Reading = sensorReading({ azimuth_angle: 280.123456, elevation_angle: 312.75, el_encoder_angle: 12.75 });
       component.reading = reading;
       component.isDeviceOnline = true;
       readingService.getLatestReading.and.returnValue(of(reading));
@@ -572,7 +573,7 @@ describe('CamComponent', () => {
       component.stopMovement();
 
       expect(commandService.postCommand).toHaveBeenCalledTimes(3);
-      expect(commandService.postCommand.calls.mostRecent().args[0].point).toEqual({ target_az_angle: 280.123456, target_el_angle: 12.75 });
+      expect(commandService.postCommand.calls.mostRecent().args[0].point).toEqual({ target_az_angle: 280.123456, target_el_angle: 312.75 });
       expect(reading.azimuth_angle).toBe(280.123456);
     });
 
@@ -819,7 +820,8 @@ describe('CamComponent', () => {
         sensorReading({ azimuth_angle: 230 }),
         sensorReading({ elevation_angle: Number.NaN }),
         sensorReading({ elevation_angle: -1 }),
-        sensorReading({ elevation_angle: 91 }),
+        sensorReading({ el_encoder_angle: 360 }),
+        sensorReading({ el_encoder_angle: null }),
         sensorReading({ health_status: 'FAULT' }),
         sensorReading({ movement_status: 'ESTOP' }),
         sensorReading({ movement_status: 'WAITING FOR NORTH' }),
@@ -844,7 +846,7 @@ describe('CamComponent', () => {
     });
 
     it('posts exact latest reported angles and the logged-in user without adding an offset', () => {
-      const latest: Reading = sensorReading({ azimuth_angle: 280.123456, elevation_angle: 12.75 });
+      const latest: Reading = sensorReading({ azimuth_angle: 280.123456, elevation_angle: 312.75, el_encoder_angle: 12.75 });
       component.reading = sensorReading({ azimuth_angle: 270, elevation_angle: 44 });
       component.telescopeMetadata = { ...metadata, az_encoder_offset: 100 };
       telescopeService.getTelescope.and.returnValue(of(telescopeWithMetadata(component.telescopeMetadata)));
@@ -862,11 +864,11 @@ describe('CamComponent', () => {
           user_id: 12,
           telescope_id: 7,
           command_type: 'point',
-          point: { target_az_angle: 280.123456, target_el_angle: 12.75 },
+          point: { target_az_angle: 280.123456, target_el_angle: 312.75 },
           track: null
         });
         expect(component.azimuth_angle).toBe(280.123456);
-        expect(component.elevation_angle).toBe(12.75);
+        expect(component.elevation_angle).toBe(312.75);
         expect(component.isPointing).toBeTrue();
         expect(component.isStopping).toBeFalse();
         expect(component.showCommandMessage).toHaveBeenCalledOnceWith('Hold-position command sent.');
@@ -882,7 +884,8 @@ describe('CamComponent', () => {
         sensorReading({ telescope_id: 8 }),
         sensorReading({ azimuth_angle: Number.NaN }),
         sensorReading({ azimuth_angle: 230 }),
-        sensorReading({ elevation_angle: 91 }),
+        sensorReading({ el_encoder_angle: 360 }),
+        sensorReading({ el_encoder_angle: null }),
         sensorReading({ health_status: 'FAULT' }),
         sensorReading({ movement_status: 'ESTOP' }),
         sensorReading({ movement_status: 'WAITING FOR NORTH' }),

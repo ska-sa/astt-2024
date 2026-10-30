@@ -347,7 +347,7 @@ export class CamComponent {
 
       const timestamp: Date = new Date(readingTime);
       azimuthPoints.push({ x: timestamp, y: reading.azimuth_angle });
-      encoderPoints.push({ x: timestamp, y: reading.el_encoder_angle ?? null });
+      encoderPoints.push({ x: timestamp, y: reading.el_encoder_angle != null ? reading.elevation_angle : null });
     }
 
     this.chartOptions = this.createChartOptions(azimuthPoints, encoderPoints);
@@ -373,13 +373,13 @@ export class CamComponent {
       data: [
         {
           type: 'line',
-          name: 'Azimuth',
+          name: 'Azimuth Angle',
           showInLegend: true,
           dataPoints: azimuthPoints
         },
         {
           type: 'line',
-          name: 'EL encoder (raw)',
+          name: 'Elevation Angle',
           showInLegend: true,
           connectNullData: false,
           dataPoints: encoderPoints
@@ -462,8 +462,8 @@ export class CamComponent {
       this.commandError = 'Azimuth must be a number between 0° and 360°.';
       return;
     }
-    if (!Number.isFinite(this.elevation_angle) || this.elevation_angle < 0 || this.elevation_angle > 90) {
-      this.commandError = 'Elevation must be a number between 0° and 90°.';
+    if (!Number.isFinite(this.elevation_angle) || this.elevation_angle < 0 || this.elevation_angle > 360) {
+      this.commandError = 'Elevation must be a number between 0° and 360°.';
       return;
     }
     const targetAzimuth: number = this.azimuth_angle;
@@ -522,7 +522,9 @@ export class CamComponent {
     if (readingTime === null || readingTime > Date.now()
         || Date.now() - readingTime > this.readingTimeoutMilliseconds) return false;
     if (!Number.isFinite(reading.azimuth_angle) || reading.azimuth_angle < 0 || reading.azimuth_angle > 360
-        || !Number.isFinite(reading.elevation_angle) || reading.elevation_angle < 0 || reading.elevation_angle > 90) return false;
+        || reading.el_encoder_angle == null || !Number.isFinite(reading.el_encoder_angle)
+        || reading.el_encoder_angle < 0 || reading.el_encoder_angle >= 360
+        || !Number.isFinite(reading.elevation_angle) || reading.elevation_angle < 0 || reading.elevation_angle >= 360) return false;
     if (reading.health_status === 'FAULT'
         || ['ESTOP', 'WAITING FOR NORTH', 'AZ ENCODER UNAVAILABLE'].includes(reading.movement_status)) return false;
 
@@ -730,7 +732,7 @@ export class CamComponent {
 
   private updateAzimuthElevation(): void {
     this.azimuth_angle = Math.round((this.knobPosition.x / this.width) * 360);
-    this.elevation_angle = Math.round((this.knobPosition.y / this.height) * 90);
+    this.elevation_angle = Math.round((this.knobPosition.y / this.height) * 360);
   }
 
   private generateGridLines(): { x1: number, y1: number, x2: number, y2: number }[] {

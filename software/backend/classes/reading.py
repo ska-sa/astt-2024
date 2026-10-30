@@ -32,14 +32,20 @@ class CreateReading(BaseModel):
     @classmethod
     def read_legacy_encoder_log(cls, data: Any) -> Any:
         """Expose raw EL from the first reading-only firmware until it is upgraded."""
-        if not isinstance(data, dict) or data.get('el_encoder_angle') is not None:
+        if not isinstance(data, dict):
             return data
         log = data.get('serial_log')
         if not isinstance(log, str):
             return data
         match = re.search(r'(?:^|\s)elEnc=(\d+(?:\.\d+)?)\s+EL_ENC=OK(?:\s|$)', log)
         if match and 0 <= float(match[1]) < 360:
-            return {**data, 'el_encoder_angle': float(match[1])}
+            encoder = data.get('el_encoder_angle')
+            if encoder is None:
+                encoder = float(match[1])
+            # The first reader still posted MPU elevation. It had no EL offset.
+            if 'EL_MPU=' in log:
+                return {**data, 'el_encoder_angle': encoder, 'elevation_angle': encoder}
+            return {**data, 'el_encoder_angle': encoder}
         return data
     
 class Reading(CreateReading):

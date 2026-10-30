@@ -92,7 +92,11 @@ int driveCalls = 0;
 int testEstopPin = HIGH;
 bool estopDuringPulse = false;
 int digitalRead(int) { return testEstopPin; }
-void digitalWrite(int, int) {}
+int elIn1 = LOW, elIn2 = LOW;
+void digitalWrite(int pin, int value) {
+  if (pin == 26) elIn1 = value;
+  if (pin == 25) elIn2 = value;
+}
 void analogWrite(int, int pwm) { if (pwm > 0) driveCalls++; }
 struct FakeQueue {
   size_t itemSize;
@@ -131,10 +135,8 @@ int xTaskCreatePinnedToCore(void (*)(void*), const char*, int, void*, int, void*
 }
 int sensorReadCalls = 0;
 bool testMpuOk = false;
-bool testElMpuOk = false;
 void readGPS() { sensorReadCalls++; }
 bool readMpu() { return testMpuOk; }
-bool readElevationMpu() { return testElMpuOk; }
 void updateLevelAngles() {}
 void delay(int) {}
 unsigned long testHigh = 0;
@@ -186,19 +188,20 @@ struct FakeMag {
   }
 } myMag;
 '''
-for name in ('AZ_MIN', 'AZ_MAX', 'EL_MIN', 'EL_MAX', 'AZ_ENCODER_MIN', 'AZ_ENCODER_MAX', 'AZ_ENCODER_OFFSET', 'AZ_TOLERANCE', 'AZ_RAMP_RANGE', 'AZ_MIN_PWM', 'AZ_MAX_PWM', 'EL_TOLERANCE', 'EL_RAMP_RANGE', 'EL_MIN_PWM', 'EL_MAX_PWM', 'AZ_ENCODER_SAMPLES', 'AZ_ENCODER_SMOOTHING', 'AZ_ENCODER_PIN', 'EL_ENCODER_PIN', 'ESTOP_PIN', 'SOURCE_TIMEOUT', 'POST_INTERVAL', 'POLL_INTERVAL', 'MAG_MOUNTING_OFFSET_DEG', 'AZ_IN1', 'AZ_IN2', 'AZ_ENA', 'EL_IN1', 'EL_IN2', 'EL_ENA'):
+for name in ('AZ_MIN', 'AZ_MAX', 'EL_MIN', 'EL_MAX', 'AZ_ENCODER_MIN', 'AZ_ENCODER_MAX', 'AZ_ENCODER_OFFSET', 'AZ_TOLERANCE', 'AZ_RAMP_RANGE', 'AZ_MIN_PWM', 'AZ_MAX_PWM', 'EL_TOLERANCE', 'EL_RAMP_RANGE', 'EL_MIN_PWM', 'EL_MAX_PWM', 'EL_MOTOR_SIGN', 'AZ_ENCODER_SAMPLES', 'AZ_ENCODER_SMOOTHING', 'AZ_ENCODER_PIN', 'EL_ENCODER_PIN', 'ESTOP_PIN', 'SOURCE_TIMEOUT', 'POST_INTERVAL', 'POLL_INTERVAL', 'MAG_MOUNTING_OFFSET_DEG', 'AZ_IN1', 'AZ_IN2', 'AZ_ENA', 'EL_IN1', 'EL_IN2', 'EL_ENA'):
     program += re.search(r'^const (?:float|int|unsigned long) ' + name + r' = [^;]+;', source, re.M)[0] + '\n'
-# Only the copied mode flag is mutable, so both supported configurations use the same real functions.
+# Copied reference settings are mutable so the real functions can be tested in both frames.
+program += re.search(r'^const float EL_ENCODER_OFFSET = [^;]+;', source, re.M)[0].replace('const ', '', 1) + '\n'
 program += re.search(r'^const bool USE_MANUAL_AZ_REFERENCE = [^;]+;', source, re.M)[0].replace('const ', '', 1) + '\n'
 program += re.search(r'^const float encoderAtNorth = [^;]+;', source, re.M)[0] + '\n'
 for name in ('magLastAttempt', 'magInitializedAt'):
     program += re.search(r'^unsigned long ' + name + r' = [^;]+;', source, re.M)[0] + '\n'
 program += source[source.index('enum class NetworkOperation'):source.index('// ---------- readings sent to backend ----------')]
-for name in ('azEncoderAngle', 'azEncoderReady', 'azEncoderValid', 'elEncoderAngle', 'elEncoderValid', 'lastElEncoderRead', 'azEncoderOffset', 'azNorthReferenceReady', 'azHeadingValid', 'azMotorStopped', 'elMotorStopped', 'movementStatus', 'healthStatus', 'serialLog', 'commandMessage', 'apiAzTarget', 'apiElTarget', 'lastApiTime', 'startupCommandId', 'lastCommandId', 'commandBaselineReady', 'azPointActive', 'azPointComplete', 'isTracking', 'estopWasActive', 'magOk', 'magneticSampleValid', 'mpuOk', 'elMpuOk', 'magneticFieldX', 'magneticFieldY', 'magneticFieldZ', 'magneticHeading', 'declination', 'trueHeading', 'mpuAccelX', 'mpuAccelY', 'mpuAccelZ', 'mpuGyroX', 'mpuGyroY', 'mpuGyroZ', 'levelRoll', 'levelPitch', 'latitude', 'longitude', 'altitude', 'azimuthAngle', 'elevationAngle', 'lastCommandHttp', 'lastReadingHttp', 'lastMetadataHttp', 'lastDiagnosticTime', 'lastPostTime', 'lastPollTime', 'telescopeId', 'track_m1', 'track_c1', 'track_T_ra', 'track_A'):
+for name in ('azEncoderAngle', 'azEncoderReady', 'azEncoderValid', 'elEncoderAngle', 'elEncoderValid', 'lastElEncoderRead', 'azEncoderOffset', 'azNorthReferenceReady', 'azHeadingValid', 'azMotorStopped', 'elMotorStopped', 'movementStatus', 'healthStatus', 'serialLog', 'commandMessage', 'apiAzTarget', 'apiElTarget', 'lastApiTime', 'startupCommandId', 'lastCommandId', 'commandBaselineReady', 'azPointActive', 'azPointComplete', 'elPointActive', 'elPointComplete', 'isTracking', 'estopWasActive', 'magOk', 'magneticSampleValid', 'mpuOk', 'magneticFieldX', 'magneticFieldY', 'magneticFieldZ', 'magneticHeading', 'declination', 'trueHeading', 'mpuAccelX', 'mpuAccelY', 'mpuAccelZ', 'mpuGyroX', 'mpuGyroY', 'mpuGyroZ', 'levelRoll', 'levelPitch', 'latitude', 'longitude', 'altitude', 'azimuthAngle', 'elevationAngle', 'lastCommandHttp', 'lastReadingHttp', 'lastMetadataHttp', 'lastDiagnosticTime', 'lastPostTime', 'lastPollTime', 'telescopeId', 'track_m1', 'track_c1', 'track_T_ra', 'track_A'):
     program += re.search(r'^(?:float|bool|String|int|unsigned long) ' + name + r' = [^;]+;', source, re.M)[0] + '\n'
-for name in ('magneticDeclination', 'currentDecimalYear', 'norm360', 'cwDistance', 'signedAngleDifference', 'encoderToTrueAzimuth', 'trueAzimuthToEncoder', 'inAzimuthNoGoZone', 'chooseDirection', 'readAzEncoderAngle', 'readElEncoderAngle', 'setAzimuthReference', 'checkAzimuthFeedback', 'initializeMagnetometer', 'ensureMagnetometerReady', 'readMagneticField', 'computeTrueHeading', 'stopAzimuthMotor', 'stopElevationMotor', 'driveAzimuthMotor', 'driveElevationMotor', 'computeAzimuthPwm', 'computeElevationPwm', 'acceptCommandId', 'clearCommandTargets', 'latchEmergencyStop', 'expireCommand', 'finishAzPoint', 'startPoint', 'startNetworkWorker', 'queueNetworkRequest', 'publishAzimuthReference', 'updateHealthStatus', 'readSensors', 'buildDiagnosticLine', 'updateDiagnostics', 'postReadings', 'applyCommandReply', 'receiveNetworkReply', 'serviceNetwork'):
+for name in ('magneticDeclination', 'currentDecimalYear', 'norm360', 'cwDistance', 'signedAngleDifference', 'encoderToTrueAzimuth', 'trueAzimuthToEncoder', 'encoderToElevation', 'elevationToEncoder', 'inAzimuthNoGoZone', 'chooseDirection', 'readAzEncoderAngle', 'readElEncoderAngle', 'setAzimuthReference', 'checkAzimuthFeedback', 'initializeMagnetometer', 'ensureMagnetometerReady', 'readMagneticField', 'computeTrueHeading', 'stopAzimuthMotor', 'stopElevationMotor', 'driveAzimuthMotor', 'driveElevationMotor', 'computeAzimuthPwm', 'computeElevationPwm', 'controlElevation', 'acceptCommandId', 'clearCommandTargets', 'latchEmergencyStop', 'expireCommand', 'finishAzPoint', 'startPoint', 'startNetworkWorker', 'queueNetworkRequest', 'publishAzimuthReference', 'updateHealthStatus', 'readSensors', 'buildDiagnosticLine', 'updateDiagnostics', 'postReadings', 'applyCommandReply', 'receiveNetworkReply', 'serviceNetwork'):
     program += function(name) + '\n'
-control = source[source.index('  bool azTargetFresh ='):source.index('  bool elTargetFresh =')]
+control = source[source.index('  bool azTargetFresh ='):source.index('  int elPwm = controlElevation(now);')]
 feedback = loop[loop.index('  if ((!networkReady || !azNorthReferenceReady || !azEncoderValid)'):loop.index('  receiveNetworkReply(false);')]
 program += '\nvoid runAzimuthControl(float azCurrent, unsigned long now) {\n' + feedback + control + '\n}\n'
 program += '\nvoid runEstopControl() {\n  unsigned long now = millis();\n  bool estopActive = true;\n' + estop_branch + '\n}\n'
@@ -213,6 +216,7 @@ time_t utcTimestamp(int year, int month, int day, int hour = 0) {
 void reset() {
   clearCommandTargets();
   USE_MANUAL_AZ_REFERENCE = false;
+  EL_ENCODER_OFFSET = 0;
   if (networkRequests) vQueueDelete(networkRequests);
   if (networkReplies) vQueueDelete(networkReplies);
   failQueueCreationAt = 0; taskCreationOk = true;
@@ -229,11 +233,11 @@ void reset() {
   testMilliseconds = 10000;
   testEstopPin = HIGH; estopDuringPulse = false;
   testHigh = 1700; testLow = 1900;
-  testElHigh = testElLow = 0; elPulseCalls = 0;
-  elEncoderAngle = NAN; elEncoderValid = false; lastElEncoderRead = 0;
+  testElHigh = testElLow = 1800; elPulseCalls = 0;
+  elEncoderAngle = 180; elEncoderValid = true; lastElEncoderRead = millis();
   testNow = utcTimestamp(2026, 7, 2, 12);
   declination = magneticDeclination(currentDecimalYear());
-  magOk = true; mpuOk = elMpuOk = false; GPS.fix = false;
+  magOk = true; mpuOk = false; GPS.fix = false;
   magLastAttempt = magInitializedAt = 0;
   magneticSampleValid = false;
   estopWasActive = false;
@@ -296,7 +300,7 @@ void testDateAndCompass() {
     if (cardinal == 3) myMag.y -= 10000;
     float heading = computeTrueHeading();
     assert(azHeadingValid && magneticSampleValid && std::fabs(signedAngleDifference(norm360(cardinal * 90 + declination), heading)) < 0.001);
-    assert(!mpuOk && !elMpuOk && std::isnan(levelRoll)); // deliberately no MPU dependency
+    assert(!mpuOk && std::isnan(levelRoll)); // deliberately no MPU dependency
   }
   reset(); myMag.measurementOk = false; rejectedHeading(); assert(!magneticSampleValid);
   reset(); magOk = false; myMag.beginOk = false; rejectedHeading(); assert(!magneticSampleValid);
@@ -426,7 +430,7 @@ void testCommands() {
   assert(!acceptCommandId(15) && acceptCommandId(16) && startPoint(230, 45));
   clearCommandTargets();
   assert(!startPoint(100, 45)); // requested AZ minus offset maps inside the raw gap
-  assert(!startPoint(NAN, 45) && !startPoint(230, 91));
+  assert(!startPoint(NAN, 45) && !startPoint(230, 361));
   declination = NAN; assert(!startPoint(230, 45));
 }
 void testElevationEncoder() {
@@ -469,13 +473,83 @@ void testElevationEncoder() {
   assert(elevationAngle == beforeElevation && azEncoderAngle == beforeAzimuth);
   assert(driveCalls == beforeDrive && !azPointActive && !isTracking);
 }
+void testElevationPoint() {
+  reset(); capture(170, 210);
+  assert(EL_MOTOR_SIGN == -1); // Operator-confirmed polarity: increasing encoder uses IN3 LOW / IN4 HIGH.
+  EL_ENCODER_OFFSET = 50;
+  for (int raw = 0; raw < 360; raw++) {
+    assert(std::fabs(signedAngleDifference(raw, elevationToEncoder(encoderToElevation(raw)))) < 0.001f);
+  }
+  assert(encoderToElevation(320) == 10 && elevationToEncoder(10) == 320);
+  testElHigh = 3200; testElLow = 400;
+  testMilliseconds += 100;
+  readSensors();
+  assert(elEncoderAngle == 320 && elevationAngle == 10);
+  assert(startPoint(220, 15));
+  assert(controlElevation(millis()) > 0 && elIn1 == LOW && elIn2 == HIGH);
+  elEncoderAngle = 325;
+  assert(controlElevation(millis()) == 0 && elPointComplete);
+  reset(); capture(170, 210);
+  elEncoderAngle = 37;
+  assert(acceptCommandId(1) && startPoint(220, 40));
+  assert(!mpuOk && elPointActive && !elPointComplete);
+  assert(controlElevation(millis()) > 0 && elIn1 == LOW && elIn2 == HIGH);
+  elEncoderAngle = 39.5;
+  assert(controlElevation(millis()) == 0 && elPointComplete && !elPointActive && elMotorStopped);
+  int before = driveCalls;
+  elEncoderAngle = 20;
+  assert(!acceptCommandId(1));
+  assert(controlElevation(millis()) == 0 && driveCalls == before);
+
+  elEncoderAngle = 37;
+  assert(acceptCommandId(2) && startPoint(220, 30));
+  assert(controlElevation(millis()) > 0 && elIn1 == HIGH && elIn2 == LOW);
+  // A slow move continues beyond three seconds (and ten seconds with polling).
+  for (int step = 1; step <= 6; step++) {
+    testMilliseconds += 2000; lastElEncoderRead = millis();
+    elEncoderAngle = 37 - step;
+    assert(!acceptCommandId(2));
+    expireCommand(millis());
+    assert(controlElevation(millis()) == 255 && elPointActive && !elPointComplete);
+    assert(elIn1 == HIGH && elIn2 == LOW);
+  }
+  elEncoderAngle = 30.2f;
+  assert(controlElevation(millis()) == 0 && !elPointActive && elPointComplete && elMotorStopped);
+  assert(!acceptCommandId(2) && controlElevation(millis()) == 0);
+
+  assert(acceptCommandId(3) && startPoint(220, 180));
+  elEncoderValid = false;
+  assert(controlElevation(millis()) == 0 && !elPointActive && elMotorStopped);
+  elEncoderValid = true;
+  assert(!acceptCommandId(3) && controlElevation(millis()) == 0);
+  assert(acceptCommandId(4) && startPoint(220, 1));
+  elEncoderAngle = 359;
+  assert(controlElevation(millis()) > 0 && elIn1 == LOW && elIn2 == HIGH);
+  lastElEncoderRead = millis() - 251;
+  assert(controlElevation(millis()) == 0 && !elPointActive);
+  lastElEncoderRead = millis();
+  assert(acceptCommandId(5) && startPoint(220, 360) && apiElTarget == 0);
+  latchEmergencyStop();
+  assert(!elPointActive && !elPointComplete && elMotorStopped);
+  assert(controlElevation(millis()) == 0);
+  elEncoderValid = false;
+  assert(!startPoint(220, 20));
+
+  reset(); capture(170, 210);
+  assert(acceptCommandId(1) && startPoint(220, 40));
+  assert(controlElevation(millis()) > 0);
+  testMilliseconds += SOURCE_TIMEOUT; lastElEncoderRead = millis();
+  expireCommand(millis());
+  assert(!elPointActive && elMotorStopped && controlElevation(millis()) == 0);
+  assert(!acceptCommandId(1) && controlElevation(millis()) == 0);
+}
 void testHealthAndDiagnostics() {
   reset();
-  mpuOk = elMpuOk = true; GPS.fix = true;
+  mpuOk = elEncoderValid = true; GPS.fix = true;
   updateHealthStatus(); assert(healthStatus == "OK");
   networkReady = false; updateHealthStatus(); assert(healthStatus == "FAULT"); networkReady = true;
   mpuOk = false; updateHealthStatus(); assert(healthStatus == "DEGRADED"); mpuOk = true;
-  elMpuOk = false; updateHealthStatus(); assert(healthStatus == "DEGRADED"); elMpuOk = true;
+  elEncoderValid = false; updateHealthStatus(); assert(healthStatus == "DEGRADED"); elEncoderValid = true;
   GPS.fix = false; updateHealthStatus(); assert(healthStatus == "DEGRADED");
   azEncoderValid = false; updateHealthStatus(); assert(healthStatus == "FAULT"); azEncoderValid = true;
   azHeadingValid = false; updateHealthStatus(); assert(healthStatus == "FAULT"); azHeadingValid = true;
@@ -687,7 +761,7 @@ void testManualReference() {
   readSensors();
   assert(std::fabs(azimuthAngle) < 0.001 && !azHeadingValid);
   assert(healthStatus == "DEGRADED");
-  mpuOk = elMpuOk = GPS.fix = true;
+  mpuOk = elEncoderValid = GPS.fix = true;
   updateHealthStatus(); assert(healthStatus == "DEGRADED"); // compass/date alone are diagnostic in manual mode
   azEncoderValid = false; updateHealthStatus(); assert(healthStatus == "FAULT");
   azEncoderValid = true; networkReady = false; updateHealthStatus(); assert(healthStatus == "FAULT");
@@ -737,7 +811,9 @@ int main() {
   int cases = 0;
   assert(USE_MANUAL_AZ_REFERENCE); // shipped configuration selects the user-confirmed manual reference
   assert(AZ_MIN_PWM == 210 && AZ_MIN_PWM <= AZ_MAX_PWM);
-  assert(computeAzimuthPwm(0.9f) == 0 && computeAzimuthPwm(1) >= 210 && computeAzimuthPwm(360) == 255);
+  assert(EL_MIN_PWM == 255 && EL_MIN_PWM <= EL_MAX_PWM);
+  assert(computeAzimuthPwm(0.9f) == 0 && computeAzimuthPwm(1) == 210 && computeAzimuthPwm(360) == 255);
+  assert(computeElevationPwm(0.9f) == 0 && computeElevationPwm(1) == 255 && computeElevationPwm(360) == 255);
   assert(std::fabs(AZ_ENCODER_MIN - 137.8f) < 0.001 && std::fabs(AZ_ENCODER_MAX - 37.8f) < 0.001);
   for (int current = 0; current < 360; current++) {
     for (int target = 0; target < 360; target++) {
@@ -775,7 +851,7 @@ int main() {
   testHigh = 100; testLow = 0; assert(readAzEncoderAngle() == previous && !azEncoderValid);
   testDateAndCompass(); testMagnetometerStartupAndRecovery(); testImmediateReference(); testCommands();
   testHealthAndDiagnostics(); testEstopTelemetry(); testLiveCompass(); testAsyncNetwork(); testReportedNorthWait();
-  testManualReference(); testElevationEncoder();
+  testManualReference(); testElevationEncoder(); testElevationPoint();
   std::cout << "PASS: " << cases << " safe routes, fixed manual reference and compass fallback, "
             << "EL PWM readings/loss/recovery, magnetometer startup/recovery, Tesla scaling, command completion/no replay, timeout, health, E-stop and async network safety" << std::endl;
 }

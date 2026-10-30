@@ -126,6 +126,21 @@ class ReadingSerialLogTests(unittest.TestCase):
                     'elEnc=2.00 EL_ENC=OKAY', None, '', 'el=0.00'):
             self.assertIsNone(CreateReading.model_validate({**payload, 'serial_log': log}).el_encoder_angle)
 
+    def test_elevation_reference_and_old_mpu_log_compatibility(self) -> None:
+        """Use the old encoder reference without overwriting new firmware's offset."""
+        payload = {**self.legacy_payload(), 'elevation_angle': 0,
+                   'serial_log': 'elEnc=36.92 EL_ENC=OK EL_MPU=ERR'}
+        for encoder in (None, 36.92):
+            reading = post_reading(CreateReading.model_validate({**payload, 'el_encoder_angle': encoder}))
+            self.assertEqual(reading.elevation_angle, 36.92)
+            self.assertEqual(get_latest_reading(7).elevation_angle, 36.92)
+        # The offset is already applied by new firmware; API must not apply it again.
+        payload.update(elevation_angle=86.92, el_encoder_angle=36.92,
+                       serial_log='el=86.92 elEnc=36.92 EL_ENC=OK')
+        reading = post_reading(CreateReading.model_validate(payload))
+        self.assertEqual(get_reading(reading.id).elevation_angle, 86.92)
+        self.assertEqual(get_reading(reading.id).el_encoder_angle, 36.92)
+
     def test_el_encoder_rejects_invalid_typed_values(self) -> None:
         """Do not store non-finite or out-of-range raw angles as valid feedback."""
         for angle in (-1, 360, float('nan'), float('inf')):

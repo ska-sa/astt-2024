@@ -57,3 +57,9 @@ Removed the unsolicited MPU elevation/pending-calibration text, duplicate table
 column and graph series, including unused graph data plumbing. Added the requested
 minimal-UI rule to AGENTS.md. All 52 focused UI tests pass after cleanup.
 Raw readings are accepted; physical stops, scale, zero and movement remain pending.
+
+Reading/UI acceptance was committed and pushed as `4da6e3c`. The subsequent
+local ASTT-055 patch consistently labels the value **Elevation Angle**, applies
+hardcoded `EL_ENCODER_OFFSET=0` through reading/target conversions, and enables
+bounded encoder-feedback Point tests. See ASTT-055 completion notes for software
+validation; physical stop measurements and qualification remain pending.

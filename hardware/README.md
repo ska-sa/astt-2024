@@ -50,43 +50,46 @@ installed heading calibration remain deferred under ASTT-047.
 Older sketches remain as reference implementations. Do not assume their pins,
 telescope IDs, or API hosts match the current assembly.
 
-### EL encoder reading test — ASTT-044
+### EL encoder reading and movement test — ASTT-044/055
 
-The operator confirms the same PWM encoder as AZ, connected to GPIO35.
-`readElEncoderAngle()` reads its raw duty angle using the existing AZ equation:
-`HIGH / (HIGH + LOW) * 360`. One sample is taken at most every 100 ms; each
-pulse wait is bounded to 25 ms (up to 50 ms added when the signal is missing).
-This is a diagnostic reading, with no EL zero, gearing or travel limits applied.
-It does not replace `elevation_angle` or drive the EL motor.
+The operator confirms the same PWM encoder as AZ, connected to GPIO35, and has
+verified its reading in the UI. The reader uses `HIGH / (HIGH + LOW) * 360`, at
+most once per 100 ms. Each pulse wait is bounded to 25 ms. Missing pulses report
+`elEnc=nan EL_ENC=ERR` and `el_encoder_angle: null`; the UI shows Not available
+or a graph gap. Valid values appear as **Elevation Angle** everywhere.
 
-After verifying/uploading the single sketch yourself, disconnect motor power
-and open Serial Monitor at 115200. Look for `elEnc=123.45 EL_ENC=OK` (example),
-also available in the latest reading's **Show more** log. Move the encoder
-gently through accessible positions and check that the value changes and repeats.
-Missing HIGH or LOW pulses report `elEnc=nan EL_ENC=ERR`, not a stale angle.
-The payload also sends nullable `el_encoder_angle`. The updated app shows
-**EL encoder (raw)** in the live panel, readings table and graph; missing values
-show Not available or a graph gap. Existing `elevation_angle` stays separate as
-MPU elevation and remains the input to the old EL draft. Until the firmware is
-updated, the API accepts `elEnc=... EL_ENC=OK` from its existing diagnostic log.
-Use the same safe signal-level arrangement as AZ. Do not force the geared dish.
-Record direction and readings before the later, supervised stop/zero work.
-AZ control and the existing MPU-based EL draft are unchanged; powered EL control
-and physical input/timing qualification are still pending.
+The operator confirms basic EL Point movement works in both directions with
+`EL_MOTOR_SIGN=-1` (2026-10-30). Firmware uses this encoder for feedback and
+drives the motor through L298 channel B. The operator confirms that physical limit
+switches open motor power; their encoder positions are still to be measured.
+No software travel endpoints are invented. `EL_MAX=360` is an input coordinate
+bound, not a claim that the dish can travel a full revolution.
+
+For the supervised test after your upload:
+
+1. Keep AZ at its current displayed angle. Command EL only 2–3 degrees away from
+   its current reading, with clearance and physical E-stop available.
+2. Verify the encoder approaches the target and stops. If it moves away, stop;
+   reverse `EL_MOTOR_SIGN` before retrying. Check a small move in each direction.
+3. EL continues until the encoder target is reached within 1° tolerance. There
+   is no fixed movement duration. Missing/stale feedback, ten seconds without
+   command communication or E-stop still stop it. Repeated polling keeps an
+   active move alive but cannot restart a completed/stopped Point. Record both
+   physical stop readings for the next patch; switches cut motor power at stops.
+
+EL celestial Track remains stopped until the mechanical reference is established.
+AZ limits, pins, source calculations and asynchronous networking are preserved.
+EL motor direction/basic movement are accepted. Gear scale, recorded physical
+stops and quantified E-stop/stopping tests remain open. Replace the slow motor
+under ASTT-096; software checks do not establish physical accuracy.
 
 ## Current system
 
-The integrated firmware connects over Wi-Fi, posts readings, polls Point and
-Track commands, reads the AZ encoder, magnetometer, and GPS, and controls the AZ
-motor with E-stop handling. A firmware-only EL control draft uses a second
-MPU6050 for feedback and L298 channel B. It still needs wiring, calibration, and
-bench testing before use.
-
-AZ movement uses encoder feedback with the fixed manual north reference.
-Compass mounting and absolute pointing accuracy remain unqualified; a working
-motor loop does not prove true-north accuracy.
-Raw encoder travel limits remain separate.
-Elevation uses accelerometer-derived tilt because a gyro alone will drift.
+The integrated firmware posts telemetry, polls Point/Track and uses encoder
+feedback with a fixed AZ reference. EL Point now uses its GPIO35 encoder and a
+fixed offset; the old second-MPU EL draft is removed. Magnetometer, MPU and GPS
+readings remain diagnostic. Automatic sensor references and absolute accuracy
+are deferred until reliable mechanical movement and mounting are established.
 
 ### Control pin map
 
@@ -98,7 +101,7 @@ Elevation uses accelerometer-derived tilt because a gyro alone will drift.
 | L298 IN4 | GPIO25 | Elevation direction |
 | L298 ENA | GPIO33 | Azimuth PWM; add a 10 kOhm pull-down |
 | L298 ENB | GPIO32 | Elevation PWM; add a 10 kOhm pull-down |
-| EL PWM encoder | GPIO35 | Raw diagnostic reading only; operator-confirmed wiring |
+| EL PWM encoder | GPIO35 | EL feedback; operator-confirmed wiring |
 | I2C SDA | GPIO21 | Shared sensor bus |
 | I2C SCL | GPIO22 | Shared sensor bus |
 
@@ -114,8 +117,8 @@ together elsewhere on the same header side. Motor outputs avoid boot-strapping
 GPIO12 and input-only GPIO35/GPIO34. Keep both enable pull-downs fitted so the motors stay
 disabled while the MCU starts.
 
-Keep the original MPU6050 at address `0x68`. Tie the elevation MPU6050 AD0 pin
-to 3.3 V so it uses address `0x69`.
+The existing MPU6050 at `0x68` remains diagnostic; EL movement no longer
+requires a second MPU at `0x69`.
 
 The firmware names the L298 channel-A pins `AZ_IN1`, `AZ_IN2`, and `AZ_ENA`.
 Channel-B pins are `EL_IN1`, `EL_IN2`, and `EL_ENA`; these map to the L298
@@ -123,17 +126,19 @@ module labels IN3, IN4, and ENB. The old potentiometer input has been removed.
 
 ### Elevation reference model
 
-The fixed `0x68` MPU measures the azimuth platform pitch. The moving `0x69` MPU
-measures the elevation assembly pitch. The firmware removes the remaining base
-tilt before controlling elevation:
+`EL_ENCODER_OFFSET` is hardcoded to `0.0°` for the initial movement tests:
 
 ```text
-relative elevation = moving MPU pitch - base pitch + zero offset
+elevation angle = norm360(raw encoder + EL_ENCODER_OFFSET)
+encoder target  = norm360(requested elevation - EL_ENCODER_OFFSET)
 ```
 
-Both MPUs must return valid readings before the elevation motor can move. Mount
-their measurement axes in the same direction, then bench-test the configured
-sign and zero offset before enabling the motor.
+Readings, history, graph and Point commands use the same reference. Later this
+reference can come from the measured midpoint or qualified sensors; it is never
+reset to the startup position. Signed midpoint coordinates and measured software
+travel limits are the next step under ASTT-042/094. Until then, use small targets
+near the current reading. The shortest angular route is not a verified EL safe
+path across a full revolution; physical switches protect the test travel.
 
 ### Azimuth reference model
 
@@ -146,12 +151,12 @@ The motor loop uses encoder feedback and a fixed manual north reference:
   it does not set or refresh the manual reference. Its standalone working
   initialization, one-second retry, 100 ms settling and continuous field reads
   share the existing I2C bus and single sensor instance.
-- The base **MPU6050** continues supplying telemetry and the existing EL draft's
-  base reference. It does not gate or tilt-compensate AZ heading.
+- The **MPU6050** continues supplying diagnostic telemetry. It does not gate
+  encoder movement or tilt-compensate AZ heading.
 - **Gyro rates** remain diagnostics, not integrated pointing angles.
 
 Mount the magnetometer and `0x68` MPU rigidly on the azimuth platform with known
-axis alignment and the MPU Z axis vertical. The `0x69` MPU moves with elevation.
+axis alignment for future reference calibration.
 
 The control calculation is:
 
@@ -247,16 +252,19 @@ may use the earlier compass reference. A bad compass/date sample marks magnetic
 diagnostics stale and health DEGRADED, but cannot change the manual offset.
 Encoder error/arrival and raw limits use the same fixed reference.
 `AZ POINT COMPLETE` records the AZ stop latch only; it does not qualify EL.
-`ON TARGET` additionally requires valid AZ and both MPU readings with both axes
-within tolerance. A successful POST alone never means the target was reached.
+`ON TARGET` additionally requires valid AZ and EL encoder feedback, both Point
+completion latches and both angles within tolerance. A successful POST alone never means the target was reached.
 Raw magnetic telemetry remains Tesla; CAM displays it in `µT`.
 Independent alignment accuracy, magnetic calibration and repeatable stopping
 checks remain pending under ASTT-043, ASTT-047, ASTT-051, and ASTT-085.
 
-AZ minimum PWM is now `210` (previously `140`, multiplied by 1.5), with maximum
-`255` and the same error ramp/tolerance. This is commanded duty, not measured
-speed or torque. Test short interior moves first: the higher floor can increase
-overshoot. Automatic stall detection/startup boosts remain deferred under ASTT-090.
+AZ minimum PWM is `210`, with the existing ramp up to `255`. EL minimum and
+maximum are both `255`, so EL uses full duty outside its stop tolerance for now.
+The operator reports that EL moves slowly; physical motor performance is unqualified.
+This is commanded duty, not guaranteed speed or torque. Keep tests short with
+E-stop available; higher duty can increase overshoot. EL has no fixed movement
+deadline; arrival and fault stops remain. Automatic stall detection/startup
+boosts remain ASTT-090 work.
 
 ### Remote diagnostic line
 
@@ -269,7 +277,7 @@ HTTP results. `reqPWM` is a request, not a measured motor current or speed.
 Genuine encoder, compass or unsupported/unsynchronised-date failures name their cause.
 
 Manual-mode health reports **FAULT** for E-stop, network-worker failure or invalid
-AZ encoder; **DEGRADED** for missing compass/date, MPUs or GPS fix; otherwise **OK**.
+AZ encoder; **DEGRADED** for missing compass/date, MPU, EL encoder or GPS fix; otherwise **OK**.
 The optional compass-estimate mode retains its blocking magnetic/date checks.
 Neither OK nor DEGRADED proves calibrated heading accuracy. While E-stop is held,
 motor outputs stay off and telemetry/logs continue; command polling pauses.
@@ -350,9 +358,10 @@ remain unchanged until safe thresholds and obstruction handling are confirmed.
 
 ### Newly requested elevation and levelling work
 
-- **ASTT-055 is reopened:** implement encoder-feedback EL movement using the
-  existing L298 channel-B pins after switch protection is confirmed. The motor
-  is connected per the operator; the old MPU draft is not qualified EL control.
+- **ASTT-055 is complete for basic EL Point movement:** the operator confirms
+  both directions work with `EL_MOTOR_SIGN=-1`.
+- **ASTT-096:** replace the EL motor with a faster suitable motor, then retest
+  direction, loaded movement, limits and stopping.
 - **ASTT-042:** record both stops, then set mechanical zero at the permitted midpoint.
 - **ASTT-044:** GPIO35 PWM readings now work in the UI per the operator. Record
   direction, scale and both limit-switch stop positions next.
