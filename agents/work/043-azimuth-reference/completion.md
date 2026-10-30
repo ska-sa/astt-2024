@@ -12,8 +12,7 @@ absolute-accuracy, stopping-distance or extended Track qualification. Those
 remain ASTT-046/047/049/051/067. No automatic north detection is claimed.
 
 ASTT-043 is closed for that explicitly accepted manual-demo scope; project
-now has 40 completed items. Unrelated planning drafts remain local and are not
-part of this verified AZ commit. EL is the next requested task, but the +Y-up mounting
+had 40 completed items at that milestone. EL was the next task, but the +Y-up mounting
 description needs actual sensor/address and known-angle confirmation before
 changing its control formula. The operator has now explicitly authorized commit
 and push of the verified AZ work before separate EL changes. No agent flash or

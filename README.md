@@ -18,12 +18,13 @@ Read [AGENTS.md](AGENTS.md) before starting work. Software details are in
 
 ## Progress
 
-**40 of 80 work items complete.** The checklist is the project source of truth.
+**41 of 89 work items complete.** The checklist is the project source of truth.
 Only mark an item complete after its acceptance criteria have been verified.
-ASTT-055 is reopened: the EL firmware draft exists, but physical elevation is
-not complete.
+ASTT-055 basic encoder-feedback EL Point movement is complete: the operator
+confirms it works in both directions on 2026-10-30. Measured EL limits, midpoint
+zero and full qualification remain open; automatic north-finding is deferred.
 
-### 1. Software and backend foundation — 14/16 complete
+### 1. Software and backend foundation — 14/18 complete
 
 - [x] **ASTT-001** Create the database schema for telescopes, readings, commands, and sources. — Slindile
 - [x] **ASTT-002** Implement FastAPI CRUD endpoints. — Slindile
@@ -41,6 +42,8 @@ not complete.
 - [x] **ASTT-084** Add a UI stop control that holds the current measured angles. — [Software verified](agents/work/084-ui-stop/completion.md); not a physical E-stop
 - [x] **ASTT-092** Expose one-line reading diagnostics and measured sensor health in all reading views. — [Software verified](agents/work/092-reading-diagnostics/completion.md); revised firmware still needs operator upload
 - [ ] **ASTT-085** Test encoder-only AZ control and reject targets outside shared telescope limits. — Sanele
+- [ ] **ASTT-086** Replace password entry with a received single-use sign-in code and verified session. — [Draft](agents/work/086-passwordless-login/prompt.md)
+- [ ] **ASTT-087** Let device owners add and remove read-only viewers. — [Draft](agents/work/087-device-viewer-access/prompt.md)
 
 ### 2. Electronics and sensor integration — 10/10 complete
 
@@ -55,32 +58,36 @@ not complete.
 - [x] **ASTT-020** Complete the manual Veroboard design. — Failed; archived for reference
 - [x] **ASTT-082** Build and verify the controller on a small breadboard. — Sanele
 
-### 3. Motion control — 4/5 complete
+### 3. Motion control — 4/8 complete
 
 - [x] **ASTT-021** Assemble the AZ mechanical parts and motor bracket.
 - [x] **ASTT-022** Complete the AZ motor-driver and control wiring.
 - [x] **ASTT-023** Update MCU firmware to drive AZ movement.
 - [x] **ASTT-024** Verify closed-loop AZ movement and encoder feedback.
+- [ ] **ASTT-096** Replace the EL motor with a faster suitable motor and retest loaded movement/stopping. — [TODO HIGH](agents/work/096-faster-el-motor/prompt.md)
+- [ ] **ASTT-094** Use signed midpoint-zero coordinates and reliable encoder-based two-axis Point control. — [TODAY CRITICAL](agents/work/094-encoder-mechanical-coordinates/prompt.md)
 - [ ] **ASTT-093** Remove network-induced AZ pauses, raise minimum PWM, and show live measured AZ/device status. — [Software verified; supervised motion pending](agents/work/093-continuous-az-motion/completion.md)
+- [ ] **ASTT-091** Add automatic recovery after external repositioning. — [LATER HIGH; deferred](agents/work/091-repositioning-recovery/prompt.md); completed Point must stay stopped for now
 
-### 5. Mechanical integration and enclosure — 2/8 complete
+### 5. Mechanical integration and enclosure — 2/9 complete
 
 - [x] **ASTT-032** Design and print the laser bracket. — Sanele
 - [x] **ASTT-033** Integrate the ASTT AZ mechanical assembly. — Sanele
 - [ ] **ASTT-034** Repair or reprint the AZ motor and encoder gears. — High
 - [ ] **ASTT-035** Complete the EL mechanical assembly. — Critical
-- [ ] **ASTT-036** Design the top enclosure around the integrated electronics. — Uhone
-- [ ] **ASTT-037** Include mounts for rotating sensors and connectors. — High
-- [ ] **ASTT-038** Print the enclosure and assemble the electronics. — LATER HIGH; follow the agreed ASTT-036/037 design with teammates
+- [ ] **ASTT-036** Build the rear electronics enclosure. — [IN PROGRESS HIGH](agents/work/036-permanent-mounting-enclosure/prompt.md); coordinate with teammates
+- [ ] **ASTT-037** Make the phone holder on the AZ gear for later MPU/magnetometer comparison. — [IN PROGRESS HIGH](agents/work/037-sensor-connector-mounts/prompt.md); preserve cable clearance
+- [ ] **ASTT-038** Print and assemble the approved enclosures/mounts. — HIGH; follow ASTT-036/037/095 designs
+- [ ] **ASTT-095** Make the front-dish laser distance-meter enclosure/mount. — [TODO HIGH](agents/work/095-front-distance-meter-mount/prompt.md); used for later three-point validation
 - [ ] **ASTT-039** Verify movement does not strain or entangle power cables. — Critical
 
-### 6. Calibration and subsystem qualification — 3/12 complete
+### 6. Calibration and subsystem qualification — 3/14 complete
 
 - [x] **ASTT-040** Establish the true-north reference. — Sanele
 - [x] **ASTT-041** Establish the telescope GPS location. — Sanele
-- [ ] **ASTT-042** Determine the zero-degree elevation reference. — Critical
+- [ ] **ASTT-042** Set EL mechanical zero at the recorded permitted-travel midpoint. — [TODAY CRITICAL](agents/work/042-elevation-reference/prompt.md); not boot position or MPU zero
 - [x] **ASTT-043** Establish the manual AZ encoder reference. — [Done for the manual demo](agents/work/043-azimuth-reference/completion.md); operator confirms 0° at midpoint, 90° right and 275° left. Quantitative accuracy/calibration remains ASTT-046/047/049
-- [ ] **ASTT-044** Integrate and calibrate the EL encoder and reference angle. — CRITICAL; model and wiring still to confirm
+- [ ] **ASTT-044** Read the newly available EL encoder and record limit-switch stop positions. — [IN PROGRESS CRITICAL](agents/work/044-elevation-encoder/prompt.md); GPIO35 reading accepted; stop measurements pending
 - [ ] **ASTT-045** Calibrate motor direction, PWM, deadband, and stopping for both axes. — Critical
 - [ ] **ASTT-046** Qualify encoder accuracy and repeatability. — High
 - [ ] **ASTT-047** Qualify magnetometer and heading measurements. — [LATER HIGH](agents/work/047-qualify-magnetometer/prompt.md); automatic referencing deferred
@@ -88,21 +95,23 @@ not complete.
 - [ ] **ASTT-049** Qualify the AZ motion subsystem independently. — Critical
 - [ ] **ASTT-050** Qualify the EL motion subsystem independently. — CRITICAL; physical connection/calibration under ASTT-055/044 first
 - [ ] **ASTT-051** Qualify the E-stop and motion limits. — Critical
+- [ ] **ASTT-089** Show MPU-based base tilt and Level / Needs levelling / Unknown status. — [Draft](agents/work/089-base-level-indicator/prompt.md)
+- [ ] **ASTT-090** Detect low-power motor hum and test a bounded PWM increase with stall protection. — [Logged](agents/work/090-motor-startup-power/prompt.md); follow-up to ASTT-045
 
-### 7. Full-system Point and Track integration — 5/8 complete
+### 7. Full-system Point and Track integration — 6/8 complete
 
 - [x] **ASTT-052** Send Point commands from GUI to backend to hardware. — Sanele
 - [x] **ASTT-053** Send Track commands from GUI to backend to hardware. — Sanele
 - [x] **ASTT-054** Calculate source-based AZ targets. — Sanele
-- [ ] **ASTT-055** Connect and verify physical EL movement without breaking AZ Point. — [CRITICAL; reopened](agents/work/055-elevation-control/prompt.md); wiring, calibration, and bench verification pending
+- [x] **ASTT-055** Implement basic encoder-feedback EL Point movement in both directions. — [Operator confirmed 2026-10-30](agents/work/055-elevation-control/completion.md); limits/zero and full qualification remain ASTT-044/042/050/051/094
 - [ ] **ASTT-056** Complete continuous Track mode with physical AZ and EL movement. — Critical
 - [x] **ASTT-057** Return actual AZ, EL, and sensor telemetry during movement. — Critical
 - [x] **ASTT-058** Display live movement and telemetry in the GUI. — High
 - [ ] **ASTT-059** Test source to command to movement to feedback end to end. — Critical
 
-### 8. Experimental validation — 0/9 complete
+### 8. Experimental validation — 0/10 complete
 
-- [ ] **ASTT-060** Define a repeatable AZ/EL test procedure and reference. — Critical
+- [ ] **ASTT-060** Plan three-point laser distance-meter / triangle validation after reliable motion. — [TODO CRITICAL](agents/work/060-three-point-validation/prompt.md); independent geometry and paired readings
 - [ ] **ASTT-061** Test targets across the usable AZ/EL range. — Critical
 - [ ] **ASTT-062** Record desired and actual AZ/EL values. — Critical
 - [ ] **ASTT-063** Repeat targets from both directions to measure backlash. — High
@@ -111,6 +120,7 @@ not complete.
 - [ ] **ASTT-066** Run Point-mode qualification tests. — Critical
 - [ ] **ASTT-067** Run an extended Track-mode qualification. — Critical
 - [ ] **ASTT-068** Record final accuracy, limitations, and failure cases. — High
+- [ ] **ASTT-088** Replay a selected Sun trajectory in 30 minutes or less and save paired tracking-error data. — [Draft](agents/work/088-compressed-sun-tracking/prompt.md)
 
 ### 9. Documentation and delivery — 2/12 complete
 
@@ -122,47 +132,52 @@ not complete.
 - [ ] **ASTT-074** Add qualification and experimental results. — Critical
 - [ ] **ASTT-075** Merge contributions into the main ASTT document. — High
 - [ ] **ASTT-076** Build one whole-system presentation. — Critical
-- [ ] **ASTT-077** Prepare and assign the 15-minute presentation script. — Critical
-- [ ] **ASTT-078** Prepare a five-minute integrated Point and Track demo. — Critical
+- [ ] **ASTT-077** Prepare the whole-system presentation script after motion tests/calibration. — [TODO CRITICAL](agents/work/077-system-presentation-script/prompt.md); use actual results and limitations
+- [ ] **ASTT-078** Demonstrate separate then combined AZ + EL mechanical Point movement. — [TODO CRITICAL](agents/work/078-integrated-point-track-demo/prompt.md); Track/absolute accuracy are later
 - [ ] **ASTT-079** Rehearse the demo and prepare a fallback recording or dataset. — High
 - [x] **ASTT-080** Combine hardware and software into one agent-ready repository. — Sanele
 
-## Immediate order
+## Immediate order — 2026-10-30
 
-ASTT-043 now uses **manual initial alignment**. The operator confirms both raw
-AZ stops (`137.8°`, `37.8°`) and clockwise 1:1 mapping. Their permitted-arc
-midpoint is `267.8°`, used as configurable `encoderAtNorth`; the fixed offset is
-`92.2°`. Manually place AZ at that midpoint, level the base and turn the base to
-align the pointing direction with true north before sending a fresh command.
-No centring, zeroing or old-command replay runs at startup. Per the latest
-operator decision there is no additional UI/Serial alignment-confirmation gate;
-the firmware assumes alignment and cannot detect repositioning. Stop and repeat
-alignment after moving the base. This does not establish absolute accuracy.
-The operator reports successful physical Point tests at 0° (midpoint), 90°
-(right) and 275° (left), and accepts the manual-reference task as complete.
-This functional result is not a measured error tolerance or full qualification.
+**Milestone: reliable AZ + EL movement using encoder feedback, not automatic
+north-finding or absolute pointing accuracy.** EL reading/UI is accepted and pushed
+as `4da6e3c`; the operator confirms EL movement works in both directions. The
+movement uses the confirmed motor direction. Replace the slow EL motor under ASTT-096.
 
-The working compass initialization/retry/continuous reads are integrated as
-diagnostics only in manual mode. Missing compass/declination cannot block manual
-Point; celestial Track still requires real UTC. Raw travel checks, E-stop,
-timeouts, source math, networking and command-ID protections remain. Automatic
-magnetic referencing stays deferred under ASTT-047.
-ASTT-092 adds a shared Serial/API diagnostic snapshot and Show more in reading
-views. ASTT is running on 8000/4200 after the user-approved auto-scheduler app stop;
-upload the revised `.ino` once to populate the new reading diagnostic field.
-ASTT-093 moves HTTP to an ESP32 worker so feedback/E-stop checks continue during
-requests and raises AZ minimum PWM from 140 to 210. Its former live-compass AZ
-telemetry is superseded by encoder-derived AZ in manual mode.
-Telescopes uses latest-reading health and Last seen; stale devices have gray rows
-without an Offline label. Smoothness, higher-power stopping and E-stop timing
-still require supervised hardware checks; nothing was flashed or committed.
+1. Operator confirms AZ still works on restored `master` (`2ca62bc`). Preserve its verified
+   raw limits `137.8° → 360°/0° → 37.8°`, direction, pins and communication.
+2. ASTT-055 basic EL Point movement and direction are accepted. ASTT-044/051:
+   record both physical stop readings and qualify switch/E-stop behavior. Physical
+   switches open motor power per the operator. `EL_ENCODER_OFFSET=0` is still the
+   initial reference; endpoints and scale must be measured.
+3. ASTT-042/094: calculate each zero halfway along its permitted encoder arc,
+   including wraparound. Store the recorded midpoint; never use boot position.
+   Use signed mechanical angles on either side. AZ midpoint is `267.8°`, giving
+   nominal `−130°…+130°` before stopping margins; old wrapped `275°` is `−85°`.
+   A measured 90° EL travel would give approximately ±45°, but EL is not yet measured.
+4. ASTT-049/050: qualify stopping, limits, feedback loss
+   and E-stop on each axis separately. Then ASTT-094/059/078: command both axes,
+   stop reliably and return to mechanical `(0°, 0°)`. Update command validation,
+   telemetry and UI consistently for negative mechanical targets when implemented.
 
-Next is ASTT-055 elevation. The operator confirms 0–90° travel and channel-B
-wiring, and now describes the MPU on the back of the moving dish with +Y up.
-Confirm the actual MPU address/count and readings at known elevations before
-choosing its tilt formula; that mounting must not be guessed from the older
-two-MPU draft. Raw/stale-feedback safeguards and independent stopping checks
-remain pending under ASTT-055/050. Combined demo qualification remains ASTT-078.
-A completed Point must stay stopped until a fresh command. Permanent mounting
-and enclosure under ASTT-036/037/038 are LATER HIGH, coordinated with teammates.
-Keycloak and cosmetic frontend work stay at the end.
+In parallel, ASTT-036 is the rear electronics enclosure, ASTT-037 the phone
+holder on the AZ gear, and ASTT-095 the front laser distance-meter mount.
+After reliable motion and rigid mounting, ASTT-060–068 cover independent
+three-point/triangle checks, paired requested/measured values, repeatability,
+error and any necessary mechanical calibration. Then prepare the whole-system
+presentation and script under ASTT-076/077, with rehearsal/fallback ASTT-079.
+
+The MPU/magnetometer are currently noisy. Preserve their code for later but do
+not let sensor calibration/reference estimation gate the mechanical milestone.
+Curve fitting/automatic references (ASTT-047), automatic recovery, Sun replay,
+login/sharing, cosmetic work and celestial Track qualification are deferred.
+Manual true-north alignment/base levelling can be used later with the brackets;
+these are separate from stored mechanical midpoint zeros. EL midpoint need not
+be horizontal. No absolute-accuracy claim follows from choosing a midpoint.
+
+The previous code and untracked work are saved locally in `stash@{0}`,
+`2026-10-30 before encoder-first AZ-EL milestone` (`be08154`). Only backlog/work
+records were restored after stashing. The EL reader/UI was accepted and pushed as
+`4da6e3c`; subsequent EL movement is operator-tested and approved for commit/push. The agent
+has not flashed hardware or sent motor commands. Only ASTT's backend was restarted
+with operator approval for the display fix; the database was retained.

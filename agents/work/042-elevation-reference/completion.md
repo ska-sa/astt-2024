@@ -1,6 +1,11 @@
 # ASTT-042 progress notes
 
-**Status:** Needs bench calibration
+**Status:** Historical MPU approach — superseded by encoder-midpoint plan 2026-10-30
+
+The notes below describe the earlier sensor-based draft, not today's requirement.
+ASTT-042/044/094 now use recorded encoder limits and their mechanical midpoint;
+MPU/magnetometer calibration is deferred. The old checked software work does not
+qualify EL zero or physical movement. No code is implemented by this plan update.
 
 ## Implemented
 

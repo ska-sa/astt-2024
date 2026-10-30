@@ -1,54 +1,41 @@
-# ASTT-042: Determine the zero-degree elevation reference
+# ASTT-042: Recorded midpoint as EL mechanical zero
 
-**Status:** Needs bench calibration
-**Area:** Hardware and calibration
+**Status:** TODO — encoder-first plan; supersedes the MPU-only zero proposal
+**Area:** Hardware | Calibration
+**Priority:** TODAY CRITICAL
 
-## Context
+## Context and goal
 
-The `0x68` MPU6050 is mounted horizontally on the azimuth platform and measures
-its small remaining tilt. The `0x69` MPU6050 moves with the elevation assembly.
-The current firmware treats the moving MPU angle as absolute and does not
-remove base tilt.
-
-## Goal
-
-Calculate elevation relative to the azimuth platform so manual levelling error
-does not become pointing error.
+The EL encoder is now available. Use its measured permitted travel, established
+under ASTT-044/051, to define a repeatable mechanical zero at the midpoint.
+That midpoint is not necessarily horizontal or the position occupied at boot.
 
 ## In scope
 
-- Calculate base roll and pitch whenever the `0x68` MPU is read.
-- Calculate the moving MPU pitch independently.
-- Use `moving pitch - base pitch` as measured elevation.
-- Keep configurable elevation sign and zero-offset constants.
-- Keep the existing 0–90 degree software range.
-- Stop elevation movement if either MPU reading is unavailable.
-- Show base pitch, moving pitch, and relative elevation in serial diagnostics.
+- Calculate the midpoint along the allowed encoder path, including wraparound.
+- Record the raw endpoints, permitted direction, scale and midpoint in config.
+- Define negative/positive mechanical EL angles on either side of that zero.
+- Separate mechanical zero from later manual levelling/horizon calibration.
+- Apply the same conversion contract as ASTT-094; keep raw limits protective.
 
 ## Out of scope
 
-- Final physical axis orientation and zero calibration.
-- Adding an elevation encoder.
-- Flashing or moving the antenna.
+Requiring MPU/magnetometer calibration, assuming a second MPU, retaining an
+unmeasured 0–90 range, treating boot position as zero, or automatic motor sweeps.
+
+## Decisions and questions
+
+Endpoint readings, encoder model/scale/sign and safe margins must be measured.
+A 90-degree total travel would become roughly -45 to +45; this is an example,
+not a claim about the actual EL stops.
 
 ## Acceptance criteria
 
-- [x] Small base tilt is removed from measured elevation.
-- [x] Both MPU readings are required before elevation movement.
-- [x] Point and Track continue using the same elevation target.
-- [x] Sign, zero offset, and 0–90 degree limits remain configurable.
-- [x] Serial output distinguishes base, moving, and relative angles.
-- [x] Static checks pass where local tooling allows.
-- [x] No hardware is flashed or powered.
+- [ ] Recorded midpoint calculation handles wrap and survives restart/config reload.
+- [ ] Encoder/mechanical conversions and signed range checks agree.
+- [ ] Supervised return to EL zero is repeatable without crossing protected limits.
 
-## Likely files
+## Likely files and verification
 
-- `hardware/wemos_lilon32/wemos_lilon32.ino`
-- `hardware/README.md`
-- `agents/work/042-elevation-reference/completion.md`
-
-## Verification
-
-- Check relative-angle examples with positive and negative base tilt.
-- Compile when Arduino CLI or PlatformIO is available.
-- Bench-test both MPU axes before enabling the elevation motor.
+Integrated firmware, host tests, calibration notes and minimal related command/UI
+handling. Check synthetic wrapped arcs first, then approved EL bench measurements.

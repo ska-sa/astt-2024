@@ -1,52 +1,37 @@
-# ASTT-047: Qualify magnetometer and heading measurements
+# ASTT-047: Later MPU/magnetometer reference fitting
 
-**Status:** Ready for bench measurements
-**Area:** Hardware and calibration
+**Status:** LATER — optional after reliable encoder motion, testing and presentation
+**Area:** Hardware | Research | Calibration
+**Priority:** Deferred; not today's blocker
 
-## Context
+## Context and goal
 
-The firmware now tilt-compensates the magnetometer and uses it to correct the
-azimuth encoder's true-north offset only while stationary. Physical readings
-are required before this heading can be trusted for Point or Track movement.
+The current MPU/magnetometer readings are noisy. Preserve their implementation
+for later experiments; use encoders and recorded mechanical zeros for movement.
+When the phone holder/rigid mounting is ready, investigate whether calibrated
+sensor readings can provide useful AZ/EL references.
 
-## Goal
+## In scope (later)
 
-Measure heading error and repeatability at known directions with motors off,
-then repeat near the installed motor hardware to identify magnetic interference.
+- Record repeatable independent reference/encoder/sensor samples with mounting,
+  orientation, units, timestamps and approach direction documented.
+- Characterise noise, mounting offsets and interference before fitting a curve.
+- Fit/validate on separate measured data; report errors and supported travel.
+- Respect actual limits; a partial AZ sweep is not full XYZ calibration.
+- Keep manual north alignment/base levelling and mechanical midpoint zeros distinct.
 
-## In scope
+## Out of scope now
 
-- Confirm the magnetometer and `0x68` MPU axis orientation.
-- Calibrate by rotating the azimuth platform through a full circle.
-- Record encoder, corrected azimuth, magnetometer, gyro Z, roll, and pitch at
-  north, east, south, and west.
-- Repeat the measurements to calculate maximum error and repeatability.
-- Compare motor-disconnected readings with installed-system readings.
-- Adjust declination and heading offset only from measured results.
+Re-enabling automatic north-finding, MPU-only EL control, startup calibration,
+mandatory sensor gates or invented coefficients. No automatic motor sweep.
 
-## Out of scope
+## Acceptance criteria (later)
 
-- Energising motors before the E-stop and motion limits are verified.
-- Using the magnetometer directly as the motor-loop feedback sensor.
-- Marking qualification complete without physical measurements.
+- [ ] Rigid mounting and independent reference/measurement method are documented.
+- [ ] Repeatability/noise and fit validation errors meet an agreed tolerance.
+- [ ] Limits and encoder control remain protective; failure cannot drive unsafely.
 
-## Acceptance criteria
+## Likely files and verification
 
-- [ ] Magnetometer and MPU axes are recorded.
-- [ ] Calibration completes using a full azimuth rotation.
-- [ ] N/E/S/W measurements are recorded for at least three runs.
-- [ ] Maximum heading error and repeatability are calculated.
-- [ ] Magnetic interference near the installed hardware is recorded.
-- [ ] Final declination and heading offset are documented.
-- [ ] The user-approved accuracy limit is met.
-- [x] No motor movement is required for the initial test.
-
-## Likely files
-
-- `hardware/magnetometer-test.md`
-- `hardware/wemos_lilon32/wemos_lilon32.ino`
-- `agents/work/047-qualify-magnetometer/completion.md`
-
-## Verification
-
-Follow `hardware/magnetometer-test.md` and retain the measured values.
+Research scripts, calibration records and a separately approved small integration.
+No physical accuracy is claimed from model agreement or computer tests alone.
