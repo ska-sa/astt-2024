@@ -16,6 +16,7 @@ import { CanvasJSAngularChartsModule } from '@canvasjs/angular-charts';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Telescope, TelescopeMetadata } from '../../interfaces/telescope';
 import { TelescopeService } from '../../services/telescope.service';
+import { signedAzimuth } from '../../utils/angles';
 
 interface ChartDataPoint {
   x: Date;
@@ -63,14 +64,11 @@ export class CamComponent {
   private metadataTelescopeId: number | null = null;
   private loadedTelescopeId: number | null = null;
 
+  private pointInputsInitialized = false;
   readingsView: 'simple' | 'raw' = 'simple';
   reading: Reading | null = null;
   lastActiveAt: Date | null = null;
   isDeviceOnline = false;
-  width = 360; // Width of the SVG
-  height = 90; // Height of the SVG
-  knobPosition: { x: number, y: number } = { x: 0, y: 0 };
-  isDragging = false;
   isPointing = true;
   isPointingPageActive = false;
   isLoading = false;
@@ -94,12 +92,8 @@ export class CamComponent {
     { label: 'Every 15 minutes', minutes: 15 },
     { label: 'Every hour', minutes: 60 }
   ];
-  azimuth_angle = 180; // Initial azimuth value
-  elevation_angle = 45; // Initial elevation value
-  latitude = 40.730610; // Sample latitude value
-  longitude = -73.935242; // Sample longitude value
-  altitude = 10; // Sample altitude value
-  gridLines = this.generateGridLines();
+  azimuth_angle: number = 0;
+  elevation_angle: number = 0;
 
   dbSources: Source[] = [];
   selectedSource: Source | null = null;
@@ -124,8 +118,7 @@ export class CamComponent {
   }
 
   get azimuthReading(): number | null {
-    const angle = this.reading?.azimuth_angle;
-    return angle != null && Number.isFinite(angle) && angle >= 0 && angle <= 360 ? angle : null;
+    return signedAzimuth(this.reading?.azimuth_angle);
   }
 
   get elevationReading(): number | null {
@@ -217,9 +210,9 @@ export class CamComponent {
         this.telescopeMetadata = metadata;
         this.loadedTelescopeId = telescopeId;
         this.calibrationMessage = '';
-        const minimum: number = this.normalizeAzimuth(metadata.az_encoder_min + metadata.az_encoder_offset);
-        const maximum: number = this.normalizeAzimuth(metadata.az_encoder_max + metadata.az_encoder_offset);
-        this.azimuthRange = `${+minimum.toFixed(2)}° to ${+maximum.toFixed(2)}°${minimum > maximum ? ' through 0°' : ''}`;
+        const minimum: number = signedAzimuth(this.normalizeAzimuth(metadata.az_encoder_min + metadata.az_encoder_offset))!;
+        const maximum: number = signedAzimuth(this.normalizeAzimuth(metadata.az_encoder_max + metadata.az_encoder_offset))!;
+        this.azimuthRange = `${+minimum.toFixed(2)}° to ${+maximum.toFixed(2)}°${minimum > maximum ? ' through ±180°' : ''}`;
         return this.isAzimuthReady();
       }),
       catchError(() => {
@@ -298,6 +291,7 @@ export class CamComponent {
     this.readingService.getLatestReading(this.telescopeId).subscribe({
       next: (reading: Reading) => {
         this.updateLatestReading(reading);
+        this.initializePointInputs();
         console.log('Latest reading loaded successfully:', reading);
         this.isLoading = false;
       },
@@ -391,7 +385,7 @@ export class CamComponent {
       }
 
       const timestamp: Date = new Date(readingTime);
-      azimuthPoints.push({ x: timestamp, y: reading.azimuth_angle });
+      azimuthPoints.push({ x: timestamp, y: signedAzimuth(reading.azimuth_angle) });
       encoderPoints.push({ x: timestamp, y: reading.el_encoder_angle != null ? reading.elevation_angle : null });
     }
 
@@ -420,6 +414,7 @@ export class CamComponent {
           type: 'line',
           name: 'Azimuth Angle',
           showInLegend: true,
+          connectNullData: false,
           dataPoints: azimuthPoints
         },
         {
@@ -467,26 +462,22 @@ export class CamComponent {
     window.scrollTo({ top: 0, behavior: 'auto' });
   }
 
-  startDrag(event: MouseEvent): void {
-    this.isDragging = true;
-    this.updateKnobPosition(event);
+  markPointInputsEdited(): void {
+    this.pointInputsInitialized = true;
   }
 
-  stopDrag(): void {
-    this.isDragging = false;
-    this.updateAzimuthElevation();
-  }
-
-  onMouseMove(event: MouseEvent): void {
-    if (this.isDragging) {
-      this.updateKnobPosition(event);
-    }
+  private initializePointInputs(): void {
+    if (this.pointInputsInitialized || this.reading?.telescope_id !== this.telescopeId) return;
+    this.pointInputsInitialized = true;
+    const azimuth = this.azimuthReading;
+    const elevation = this.elevationReading;
+    if (azimuth !== null && azimuth >= -130 && azimuth <= 130) this.azimuth_angle = azimuth;
+    if (elevation !== null && elevation <= 90) this.elevation_angle = elevation;
   }
 
   point(): void {
     this.isPointing = true;
     this.commandError = '';
-    this.updateAzimuthElevation();
   }
 
   track(): void {
@@ -503,15 +494,15 @@ export class CamComponent {
     if (this.isLoading || this.isStopping) return;
 
     this.commandError = '';
-    if (!Number.isFinite(this.azimuth_angle) || this.azimuth_angle < 0 || this.azimuth_angle > 360) {
-      this.commandError = 'Azimuth must be a number between 0° and 360°.';
+    if (!Number.isFinite(this.azimuth_angle) || this.azimuth_angle < -130 || this.azimuth_angle > 130) {
+      this.commandError = 'Azimuth must be a number between -130° and +130°.';
       return;
     }
-    if (!Number.isFinite(this.elevation_angle) || this.elevation_angle < 0 || this.elevation_angle > 360) {
-      this.commandError = 'Elevation must be a number between 0° and 360°.';
+    if (!Number.isFinite(this.elevation_angle) || this.elevation_angle < 0 || this.elevation_angle > 90) {
+      this.commandError = 'Elevation must be a number between 0° and 90°.';
       return;
     }
-    const targetAzimuth: number = this.azimuth_angle;
+    const targetAzimuth: number = this.normalizeAzimuth(this.azimuth_angle);
     const targetElevation: number = this.elevation_angle;
     this.prepareCommand(() => {
       const metadata: TelescopeMetadata = this.telescopeMetadata!;
@@ -622,7 +613,7 @@ export class CamComponent {
 
               this.isPointing = true;
               this.isPointingPageActive = true;
-              this.azimuth_angle = reading.azimuth_angle;
+              this.azimuth_angle = signedAzimuth(reading.azimuth_angle)!;
               this.elevation_angle = reading.elevation_angle;
               this.showCommandMessage('Hold-position command sent.');
             },
@@ -758,37 +749,6 @@ export class CamComponent {
         }
       }));
     });
-  }
-
-  private updateKnobPosition(event: MouseEvent): void {
-    const container = event.target as HTMLElement;
-    const rect = container.getBoundingClientRect();
-    const offsetX = event.clientX - rect.left; // Center the knob
-    const offsetY = event.clientY - rect.top; // Center the knob
-
-    const maxXOffset = rect.width / 2; // Max movement limit
-    const maxYOffset = rect.height / 2; // Max movement limit
-    const x = Math.max(-maxXOffset, Math.min(maxXOffset, offsetX));
-    const y = Math.max(-maxYOffset, Math.min(maxYOffset, offsetY));
-
-    this.knobPosition = { x, y };
-    this.updateAzimuthElevation();
-  }
-
-  private updateAzimuthElevation(): void {
-    this.azimuth_angle = Math.round((this.knobPosition.x / this.width) * 360);
-    this.elevation_angle = Math.round((this.knobPosition.y / this.height) * 360);
-  }
-
-  private generateGridLines(): { x1: number, y1: number, x2: number, y2: number }[] {
-    const gridLines = [];
-    for (let i = 0; i <= 360; i += 30) {
-      gridLines.push({ x1: i, y1: 0, x2: i, y2: 90 });
-    }
-    for (let i = 0; i <= 90; i += 15) {
-      gridLines.push({ x1: 0, y1: i, x2: 360, y2: i });
-    }
-    return gridLines;
   }
 
   public getHealthStatusClass(healthStatus: string | undefined = this.reading?.health_status): string {

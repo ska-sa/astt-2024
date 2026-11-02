@@ -9,14 +9,14 @@ agents/work/NNN-short-title/
 ```
 
 Use the existing `ASTT-NNN` number from the root checklist. The next number for
-a new, unlisted item is **099**. Current project progress is **43/91 complete**.
+a new, unlisted item is **100**. Current project progress is **44/92 complete**.
 
 ## Current UI work — 2026-11-02
 
 - **DONE:** [097 Simple/Raw CAM readings](097-cam-reading-views/completion.md).
 - **DONE:** [098 AZ/EL gauges and GPS](098-cam-angle-gauges/completion.md).
-- **NEXT:** [094 signed AZ input, -130° to +130°](094-encoder-mechanical-coordinates/prompt.md),
-  starting with AZ after the gauge UI review; EL midpoint work follows measured stops.
+- **DONE:** [099 UI-only signed AZ input and initial targets](099-ui-signed-pointing/completion.md).
+  API/firmware keep their current angles; 094 remains for mechanical coordinates/EL limits.
 - Mechanical limits/references and deferred sensor qualification keep their existing tasks.
 
 ## Current plan — 2026-10-30
@@ -58,8 +58,9 @@ motion or hardware flash.
 ## Earlier manual-AZ result
 
 ASTT-043 remains accepted for the previous manual AZ demo (midpoint 267.8°,
-wrapped display 0/90/275). Signed coordinates are new work under ASTT-094, not
-an assertion that the current API already accepts negative angles. Earlier
+API angles 0/90/275). ASTT-099 displays those as 0/90/−85 and translates negative
+UI targets into wrapped API values. ASTT-094 retains mechanical-coordinate work;
+the API still does not accept negative angles. Earlier
 MPU-only EL setup work is stashed/superseded by the new encoder-first plan.
 Neither software tests nor ticket creation qualify physical EL or accuracy.
 

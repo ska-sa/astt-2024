@@ -1,3 +1,4 @@
+import { signedAzimuth } from '../../utils/angles';
 import { Component, OnInit } from '@angular/core';
 import { CommandService } from '../../services/command.service';
 import { Command } from '../../interfaces/command';
@@ -106,7 +107,7 @@ export class CommandsComponent implements OnInit {
 
   getCommandDetails(command: Command): string {
     if (command.command_type === 'point' && command.point) {
-      return `Azimuth: ${command.point.target_az_angle}°, Elevation: ${command.point.target_el_angle}°`;
+      return `Azimuth: ${signedAzimuth(command.point.target_az_angle) ?? '—'}°, Elevation: ${command.point.target_el_angle}°`;
     }
 
     if (command.command_type === 'track' && command.track) {

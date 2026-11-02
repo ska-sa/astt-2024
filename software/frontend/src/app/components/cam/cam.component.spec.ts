@@ -19,8 +19,8 @@ describe('CamComponent', () => {
   let readingService: jasmine.SpyObj<ReadingService>;
   const metadata: TelescopeMetadata = {
     az_encoder_min: 137.8,
-    az_encoder_max: 209.7,
-    az_encoder_offset: 0,
+    az_encoder_max: 37.8,
+    az_encoder_offset: 92.2,
     az_range_temporary: true,
     az_alignment_verified: false
   };
@@ -40,7 +40,7 @@ describe('CamComponent', () => {
       id: 101,
       telescope_id: 7,
       created_at: new Date(Date.now() - 1000).toISOString(),
-      azimuth_angle: 180,
+      azimuth_angle: 0,
       elevation_angle: 45,
       el_encoder_angle: overrides.elevation_angle ?? 45,
       latitude: 0,
@@ -133,13 +133,14 @@ describe('CamComponent', () => {
     it('orients AZ clockwise from north and updates the measured value without applying another offset', () => {
       fixture.detectChanges();
       component.telescopeMetadata = { ...metadata, az_encoder_offset: 92.2 };
-      for (const angle of [0, 90, 180, 270, 360]) {
+      for (const angle of [0, 90, 130, 230, 270, 359, 360]) {
         component.reading = sensorReading({ azimuth_angle: angle });
         fixture.detectChanges();
+        const displayed = angle > 180 ? angle - 360 : angle;
         const gauge: SVGElement = fixture.nativeElement.querySelector('.azimuth-gauge');
-        expect(gauge.querySelector('.azimuth-needle')?.getAttribute('transform')).toBe(`rotate(${angle} 120 120)`);
-        expect(fixture.nativeElement.querySelector('.azimuth-reading')?.textContent).toBe(`${angle.toFixed(2)}°`);
-        expect(gauge.getAttribute('aria-label')).toBe(`Azimuth Angle: ${angle} degrees`);
+        expect(gauge.querySelector('.azimuth-needle')?.getAttribute('transform')).toBe(`rotate(${displayed} 120 120)`);
+        expect(fixture.nativeElement.querySelector('.azimuth-reading')?.textContent).toBe(`${displayed.toFixed(2)}°`);
+        expect(gauge.getAttribute('aria-label')).toBe(`Azimuth Angle: ${displayed} degrees`);
       }
     });
 
@@ -217,6 +218,79 @@ describe('CamComponent', () => {
     expect(commandService.postCommand).not.toHaveBeenCalled();
     component.ngOnDestroy();
   }));
+
+  describe('initial Point values', () => {
+    beforeEach(() => {
+      spyOn(component, 'getSources');
+      spyOn(component, 'loadGraph');
+    });
+
+    it('starts at zero, seeds from the initial reading once and preserves edits during polling and mode switches', fakeAsync(() => {
+      const first = new Subject<Reading>();
+      readingService.getLatestReading.and.returnValues(first, of(sensorReading({ id: 102, azimuth_angle: 30, elevation_angle: 60 })));
+      expect(component.azimuth_angle).toBe(0);
+      expect(component.elevation_angle).toBe(0);
+      fixture.detectChanges();
+      first.next(sensorReading({ azimuth_angle: 275, elevation_angle: 25 }));
+      first.complete();
+      expect(component.azimuth_angle).toBe(-85);
+      expect(component.elevation_angle).toBe(25);
+      fixture.detectChanges();
+      const inputs: NodeListOf<HTMLInputElement> = fixture.nativeElement.querySelectorAll('input[type="number"]');
+      expect(inputs[0].min).toBe('-130'); expect(inputs[0].max).toBe('130');
+      expect(inputs[1].min).toBe('0'); expect(inputs[1].max).toBe('90');
+      inputs[0].value = '-20'; inputs[0].dispatchEvent(new Event('input'));
+      tick(1000);
+      component.track(); component.point();
+      expect(component.azimuth_angle).toBe(-20);
+      expect(component.elevation_angle).toBe(25);
+      expect(component.azimuthReading).toBe(30);
+      expect(commandService.postCommand).not.toHaveBeenCalled();
+      component.ngOnDestroy();
+    }));
+
+    it('preserves an edit made before the first reading arrives', () => {
+      spyOn(component, 'startPollingReadings');
+      const first = new Subject<Reading>();
+      readingService.getLatestReading.and.returnValue(first);
+      fixture.detectChanges();
+      const input: HTMLInputElement = fixture.nativeElement.querySelector('input[type="number"]');
+      input.value = '-40'; input.dispatchEvent(new Event('input'));
+      first.next(sensorReading({ azimuth_angle: 275, elevation_angle: 25 }));
+      first.complete();
+      expect(component.azimuth_angle).toBe(-40);
+      expect(component.elevation_angle).toBe(0);
+      expect(commandService.postCommand).not.toHaveBeenCalled();
+    });
+
+    it('keeps zero defaults after an initial failure even if later polling recovers', fakeAsync(() => {
+      readingService.getLatestReading.and.returnValues(throwError(() => new Error('offline')), of(sensorReading({ azimuth_angle: 275, elevation_angle: 25 })));
+      fixture.detectChanges(); tick(1000);
+      expect(component.azimuth_angle).toBe(0); expect(component.elevation_angle).toBe(0);
+      expect(component.azimuthReading).toBe(-85);
+      component.ngOnDestroy();
+    }));
+
+    it('leaves defaults for missing or out-of-input-range initial positions without clamping actual readings', () => {
+      spyOn(component, 'startPollingReadings');
+      readingService.getLatestReading.and.returnValue(of(sensorReading({ azimuth_angle: 180, elevation_angle: 275 })));
+      fixture.detectChanges();
+      expect(component.azimuth_angle).toBe(0); expect(component.elevation_angle).toBe(0);
+      expect(component.azimuthReading).toBe(180); expect(component.elevationReading).toBe(275);
+    });
+  });
+
+  it('uses signed AZ in the live raw view and history without mutating API readings', () => {
+    spyOn(component, 'loadReading'); spyOn(component, 'startPollingReadings');
+    spyOn(component, 'getSources'); spyOn(component, 'loadGraph');
+    const readings = [359, 0, 1, 230, 275, 130, 360].map(azimuth_angle => sensorReading({ azimuth_angle }));
+    component.reading = readings[4]; component.readingsView = 'raw';
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.sensor-readings').textContent).toContain('Azimuth Angle: -85.00°');
+    component['updateChart'](readings);
+    expect(component.chartOptions.data[0].dataPoints.map(point => point.y)).toEqual([-1, 0, 1, -130, -85, 130, 0]);
+    expect(readings.map(reading => reading.azimuth_angle)).toEqual([359, 0, 1, 230, 275, 130, 360]);
+  });
 
   it('graphs referenced AZ and EL with gaps for missing encoder readings', () => {
     component['updateChart']([
@@ -394,86 +468,57 @@ describe('CamComponent', () => {
     expect(commandService.postCommand).not.toHaveBeenCalled();
   });
 
-  it('rejects out-of-range targets without changing the entered angle', () => {
-    component.azimuth_angle = 230;
-
-    component.startPointing();
-
-    expect(commandService.postCommand).not.toHaveBeenCalled();
-    expect(component.azimuth_angle).toBe(230);
-    expect(component.commandError).toContain('137.8° to 209.7°');
+  it('rejects AZ inputs outside -130 to 130 without changing the entered value', () => {
+    for (const angle of [-131, 131, 230, 360, NaN, Infinity]) {
+      component.azimuth_angle = angle;
+      component.startPointing();
+      expect(commandService.postCommand).not.toHaveBeenCalled();
+      expect(component.azimuth_angle).toEqual(angle);
+      expect(component.commandError).toContain('-130° and +130°');
+    }
   });
 
-  it('accepts configured range boundaries and interior targets without changing them', () => {
-    for (const angle of [137.8, 150, 170, 190, 209.7]) {
+  it('converts signed endpoints and interior targets to API degrees while preserving the form', () => {
+    component.elevation_angle = 45;
+    for (const [angle, apiAngle] of [[-130, 230], [-90, 270], [-0.5, 359.5], [0, 0], [90, 90], [130, 130]]) {
       component.azimuth_angle = angle;
       component.startPointing();
       expect(component.commandError).toBe('');
       expect(component.azimuth_angle).toBe(angle);
+      expect(commandService.postCommand.calls.mostRecent().args[0].point)
+        .toEqual({ target_az_angle: apiAngle, target_el_angle: 45 });
     }
-
-    expect(commandService.postCommand).toHaveBeenCalledTimes(5);
+    expect(commandService.postCommand).toHaveBeenCalledTimes(6);
   });
 
-  it('checks the raw encoder range after applying the configured offset', () => {
+  it('still checks the raw encoder range after converting a signed UI target', () => {
     telescopeService.getTelescope.and.returnValue(of(telescopeWithMetadata({
-      ...metadata,
-      az_encoder_offset: 200
+      ...metadata, az_encoder_min: 137.8, az_encoder_max: 209.7, az_encoder_offset: 100
     })));
-    component.loadTelescope();
+    component.azimuth_angle = -90;
+    component.startPointing();
+    expect(commandService.postCommand.calls.mostRecent().args[0].point?.target_az_angle).toBe(270);
     component.azimuth_angle = 10;
-
     component.startPointing();
-
-    expect(commandService.postCommand).toHaveBeenCalled();
-    expect(component.azimuthRange).toContain('through 0°');
+    expect(commandService.postCommand).toHaveBeenCalledTimes(1);
+    expect(component.commandError).toContain('-122.2° to -50.3°');
+    expect(component.azimuth_angle).toBe(10);
   });
 
-  it('accepts wrapped-range targets and both endpoints without changing them', () => {
-    telescopeService.getTelescope.and.returnValue(of(telescopeWithMetadata({
-      ...metadata,
-      az_encoder_max: 37.8
-    })));
-    component.loadTelescope();
-
-    for (const angle of [137.8, 250, 350, 20, 37.8]) {
-      component.azimuth_angle = angle;
+  it('accepts EL endpoints and rejects values outside 0 to 90 without changing them', () => {
+    for (const angle of [0, 45, 90]) {
+      component.elevation_angle = angle;
       component.startPointing();
       expect(component.commandError).toBe('');
-      expect(component.azimuth_angle).toBe(angle);
+      expect(commandService.postCommand.calls.mostRecent().args[0].point?.target_el_angle).toBe(angle);
     }
-
-    expect(commandService.postCommand).toHaveBeenCalledTimes(5);
-    expect(component.azimuthRange).toBe('137.8° to 37.8° through 0°');
-  });
-
-  it('rejects a target in the excluded arc without posting or changing it', () => {
-    telescopeService.getTelescope.and.returnValue(of(telescopeWithMetadata({
-      ...metadata,
-      az_encoder_max: 37.8
-    })));
-    component.loadTelescope();
-    component.azimuth_angle = 100;
-
-    component.startPointing();
-
-    expect(commandService.postCommand).not.toHaveBeenCalled();
-    expect(component.azimuth_angle).toBe(100);
-    expect(component.commandError).toContain('137.8° to 37.8° through 0°');
-  });
-
-  it('normalizes 360 degrees to zero when checking the encoder range', () => {
-    telescopeService.getTelescope.and.returnValue(of(telescopeWithMetadata({
-      ...metadata,
-      az_encoder_min: 0,
-      az_encoder_max: 20
-    })));
-    component.loadTelescope();
-    component.azimuth_angle = 360;
-
-    component.startPointing();
-
-    expect(commandService.postCommand).toHaveBeenCalled();
+    for (const angle of [-1, 91, 360, NaN, Infinity]) {
+      component.elevation_angle = angle;
+      component.startPointing();
+      expect(component.commandError).toContain('0° and 90°');
+      expect(component.elevation_angle).toEqual(angle);
+    }
+    expect(commandService.postCommand).toHaveBeenCalledTimes(3);
   });
 
   it('rejects missing calibration metadata before posting', () => {
@@ -512,7 +557,7 @@ describe('CamComponent', () => {
     component.startPointing();
     expect(component.commandError).toContain('Azimuth must be a number');
 
-    component.azimuth_angle = 180;
+    component.azimuth_angle = 0;
     component.elevation_angle = 361;
     component.startPointing();
     expect(component.commandError).toContain('Elevation must be a number');
@@ -589,14 +634,14 @@ describe('CamComponent', () => {
       component.startPointing();
 
       expect(component.isAzimuthReady()).toBeTrue();
-      expect(component.azimuthRange).toBe('230° to 130° through 0°');
-      expect(component.commandError).toContain('230° to 130° through 0°');
+      expect(component.azimuthRange).toBe('-130° to 130°');
+      expect(component.commandError).toContain('-130° and +130°');
       expect(component.azimuth_angle).toBe(180);
       expect(commandService.postCommand).not.toHaveBeenCalled();
       expect(readingService.getLatestReading).not.toHaveBeenCalled();
     });
 
-    it('shows the manual reference and magnetometer readings without compass warnings while retaining escaped raw diagnostics', () => {
+    it('omits reference filler and keeps magnetometer readings and escaped raw diagnostics', () => {
       spyOn(component, 'loadReading');
       spyOn(component, 'startPollingReadings');
       spyOn(component, 'getSources');
@@ -620,9 +665,9 @@ describe('CamComponent', () => {
       for (const isPointing of [true, false]) {
         component.isPointing = isPointing;
         fixture.detectChanges();
-        expect(element.textContent).toContain('Reference: MANUAL_ALIGNMENT. AZ is encoder-derived');
-        expect(element.textContent).toContain('base levelling and true-north alignment are manual');
-        expect(element.textContent).toContain('Absolute accuracy is unverified.');
+        expect(element.textContent).not.toContain('Reference: MANUAL_ALIGNMENT. AZ is encoder-derived');
+        expect(element.textContent).not.toContain('base levelling and true-north alignment are manual');
+        expect(element.textContent).not.toContain('Absolute accuracy is unverified.');
         expect(element.textContent).not.toContain('Uncalibrated heading estimate');
         expect(element.textContent).not.toContain('Declination is unavailable');
         expect(panel.textContent).toContain('Magnetic Field X: 1.25 µT');
@@ -666,7 +711,8 @@ describe('CamComponent', () => {
     it('allows Point, Track, and hold with numeric limits only and does not change reported angles', () => {
       telescopeService.getTelescope.and.returnValue(of(telescopeWithMetadata({ ...metadata, az_encoder_offset: 100 })));
       component.loadTelescope();
-      component.azimuth_angle = 280;
+      component.azimuth_angle = -80;
+      component.elevation_angle = 45;
       component.startPointing();
       expect(commandService.postCommand.calls.mostRecent().args[0].point).toEqual({ target_az_angle: 280, target_el_angle: 45 });
       component.startTracking();
@@ -684,7 +730,7 @@ describe('CamComponent', () => {
       expect(reading.azimuth_angle).toBe(280.123456);
     });
 
-    it('shows the same range and an unverified alignment warning in both modes without blocking readiness', () => {
+    it('removes requested hold/reference notes in both modes without blocking readiness', () => {
       spyOn(component, 'loadReading');
       spyOn(component, 'startPollingReadings');
       spyOn(component, 'getSources');
@@ -696,27 +742,28 @@ describe('CamComponent', () => {
         component.isPointing = isPointing;
         fixture.detectChanges();
         expect(component.isAzimuthReady()).toBeTrue();
-        expect(element.textContent).toContain('Offset: 0°');
-        expect(element.textContent).toContain('137.8° to 209.7°');
-        expect(element.textContent).toContain('Uncalibrated heading estimate — accuracy unverified.');
+        expect(element.textContent).not.toContain('Offset:');
+        expect(element.textContent).not.toContain('Allowed azimuth:');
+        expect(element.textContent).not.toContain('Uncalibrated heading estimate');
+        expect(element.textContent).not.toContain('Software hold only:');
       }
       expect(commandService.postCommand).not.toHaveBeenCalled();
     });
 
-    it('rejects both north zero and 360 when the shifted mechanical no-go arc contains north', () => {
+    it('rejects zero when the shifted mechanical no-go arc contains it', () => {
       telescopeService.getTelescope.and.returnValue(of(telescopeWithMetadata({
         ...metadata, az_encoder_max: 37.8, az_encoder_offset: 300
       })));
 
-      for (const angle of [0, 360]) {
+      for (const angle of [0]) {
         component.azimuth_angle = angle;
         component.startPointing();
-        expect(component.commandError).toContain('77.8° to 337.8°');
+        expect(component.commandError).toContain('77.8° to -22.2° through ±180°');
         expect(component.azimuth_angle).toBe(angle);
       }
       expect(commandService.postCommand).not.toHaveBeenCalled();
 
-      for (const angle of [90, 330]) {
+      for (const angle of [90, -30]) {
         component.azimuth_angle = angle;
         component.startPointing();
         expect(component.commandError).toBe('');
@@ -737,8 +784,8 @@ describe('CamComponent', () => {
       tick(2000);
 
       expect(telescopeService.getTelescope).toHaveBeenCalledTimes(1);
-      expect(component.azimuthRange).toBe('237.8° to 309.7°');
-      expect(component.reading?.azimuth_angle).toBe(180);
+      expect(component.azimuthRange).toBe('-122.2° to 137.8°');
+      expect(component.reading?.azimuth_angle).toBe(0);
       expect(commandService.postCommand).not.toHaveBeenCalled();
       component.ngOnDestroy();
     }));
@@ -752,10 +799,10 @@ describe('CamComponent', () => {
       component.loadTelescope();
 
       expect(telescopeService.getTelescope).toHaveBeenCalledTimes(1);
-      expect(component.azimuthRange).toBe('137.8° to 209.7°');
+      expect(component.azimuthRange).toBe('-130° to 130°');
       response.next(telescopeWithMetadata({ ...metadata, az_encoder_offset: 100 }));
       response.complete();
-      expect(component.azimuthRange).toBe('237.8° to 309.7°');
+      expect(component.azimuthRange).toBe('-122.2° to 137.8°');
       expect(commandService.postCommand).not.toHaveBeenCalled();
     });
 
@@ -772,7 +819,7 @@ describe('CamComponent', () => {
       older.next(telescopeWithMetadata(metadata));
 
       expect(component.telescopeMetadata?.az_encoder_offset).toBe(100);
-      expect(component.azimuthRange).toBe('237.8° to 309.7°');
+      expect(component.azimuthRange).toBe('-122.2° to 137.8°');
       expect(commandService.postCommand).not.toHaveBeenCalled();
     });
 
@@ -780,7 +827,7 @@ describe('CamComponent', () => {
       const response: Subject<Telescope> = new Subject<Telescope>();
       telescopeService.getTelescope.calls.reset();
       telescopeService.getTelescope.and.returnValue(response);
-      component.azimuth_angle = 280;
+      component.azimuth_angle = -80;
       component.elevation_angle = 45;
       component.startPointing();
       component.azimuth_angle = 200;
@@ -809,7 +856,7 @@ describe('CamComponent', () => {
       expect(component.commandError).toContain('backend connection');
       expect(component.isLoading).toBeFalse();
       expect(component.reading).toBe(reading);
-      expect(component.reading?.azimuth_angle).toBe(180);
+      expect(component.reading?.azimuth_angle).toBe(0);
       expect(component.reading?.magnetic_field_x).toBe(-0.000001155625);
       expect(commandService.postCommand).not.toHaveBeenCalled();
     });
@@ -924,7 +971,7 @@ describe('CamComponent', () => {
         sensorReading({ azimuth_angle: Number.POSITIVE_INFINITY }),
         sensorReading({ azimuth_angle: -1 }),
         sensorReading({ azimuth_angle: 361 }),
-        sensorReading({ azimuth_angle: 230 }),
+        sensorReading({ azimuth_angle: 180 }),
         sensorReading({ elevation_angle: Number.NaN }),
         sensorReading({ elevation_angle: -1 }),
         sensorReading({ el_encoder_angle: 360 }),
@@ -974,7 +1021,7 @@ describe('CamComponent', () => {
           point: { target_az_angle: 280.123456, target_el_angle: 312.75 },
           track: null
         });
-        expect(component.azimuth_angle).toBe(280.123456);
+        expect(component.azimuth_angle).toBeCloseTo(-79.876544, 6);
         expect(component.elevation_angle).toBe(312.75);
         expect(component.isPointing).toBeTrue();
         expect(component.isStopping).toBeFalse();
@@ -990,7 +1037,7 @@ describe('CamComponent', () => {
         sensorReading({ created_at: new Date(Date.now() + 60000).toISOString() }),
         sensorReading({ telescope_id: 8 }),
         sensorReading({ azimuth_angle: Number.NaN }),
-        sensorReading({ azimuth_angle: 230 }),
+        sensorReading({ azimuth_angle: 180 }),
         sensorReading({ el_encoder_angle: 360 }),
         sensorReading({ el_encoder_angle: null }),
         sensorReading({ health_status: 'FAULT' }),
@@ -1096,7 +1143,7 @@ describe('CamComponent', () => {
       expect(readingService.getLatestReading).toHaveBeenCalledTimes(1);
       expect(commandService.postCommand).not.toHaveBeenCalled();
 
-      latest.next(sensorReading({ azimuth_angle: 185, elevation_angle: 35 }));
+      latest.next(sensorReading({ azimuth_angle: 275, elevation_angle: 35 }));
       expect(component.isStopping).toBeTrue();
       expect(component.azimuth_angle).toBe(190);
       expect(component.elevation_angle).toBe(40);
@@ -1111,7 +1158,7 @@ describe('CamComponent', () => {
       posted.next({} as Command);
 
       expect(component.isStopping).toBeFalse();
-      expect(component.azimuth_angle).toBe(185);
+      expect(component.azimuth_angle).toBe(-85);
       expect(component.elevation_angle).toBe(35);
       expect(component.isPointing).toBeTrue();
       expect(component.showCommandMessage).toHaveBeenCalledOnceWith('Hold-position command sent.');

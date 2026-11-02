@@ -4,18 +4,14 @@
 **Area:** Hardware | Integration
 **Priority:** CRITICAL
 
-## Next phase — signed AZ input (requested 2026-11-02)
+## UI phase — ASTT-099 (2026-11-02)
 
-After the current gauge UI review, implement AZ angles from **-130° to +130°**,
-including negative user inputs. Start with AZ; EL midpoint work still awaits its
-recorded stops. Preserve the raw AZ endpoints and recorded midpoint, and update
-command validation, target conversion, readings and graph labels consistently.
-This is queued work; the current UI refinement does not change coordinates.
-
-- [ ] Accept reachable negative AZ targets, including values close to both ends.
-- [ ] Keep encoder limits and safe-path checks in the original raw frame.
-- [ ] Show signed measured AZ consistently in gauges, tables and history.
-- [ ] Verify midpoint/endpoint conversions and existing timeout/E-stop behavior.
+[ASTT-099](../099-ui-signed-pointing/completion.md) implements signed AZ
+**−130° to +130°** in the frontend and converts targets back to the existing
+wrapped API angles. Gauges, tables and history agree. Manual UI EL is 0–90°
+for now. Firmware/API coordinates, raw AZ endpoints, offsets and safe paths
+are unchanged. EL midpoint/limits and physical two-axis qualification below
+remain pending; this UI work does not complete ASTT-094.
 
 ## Goal and implementation order
 

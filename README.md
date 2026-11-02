@@ -18,13 +18,13 @@ Read [AGENTS.md](AGENTS.md) before starting work. Software details are in
 
 ## Progress
 
-**43 of 91 work items complete.** The checklist is the project source of truth.
+**44 of 92 work items complete.** The checklist is the project source of truth.
 Only mark an item complete after its acceptance criteria have been verified.
 ASTT-055 basic encoder-feedback EL Point movement is complete: the operator
 confirms it works in both directions on 2026-10-30. Measured EL limits, midpoint
 zero and full qualification remain open; automatic north-finding is deferred.
 
-### 1. Software and backend foundation — 16/20 complete
+### 1. Software and backend foundation — 17/21 complete
 
 - [x] **ASTT-001** Create the database schema for telescopes, readings, commands, and sources. — Slindile
 - [x] **ASTT-002** Implement FastAPI CRUD endpoints. — Slindile
@@ -47,6 +47,8 @@ zero and full qualification remain open; automatic north-finding is deferred.
 
 - [x] **ASTT-097** Add Simple/Raw CAM reading views. — [Software verified](agents/work/097-cam-reading-views/completion.md)
 - [x] **ASTT-098** Add AZ/EL gauges with range shading and GPS. — [Software verified](agents/work/098-cam-angle-gauges/completion.md); EL travel limits remain ASTT-044
+
+- [x] **ASTT-099** Use signed AZ −130° to +130° and EL 0° to 90° in the UI, with one-time initial targets. — [Software verified](agents/work/099-ui-signed-pointing/completion.md); API/firmware unchanged
 
 ### 2. Electronics and sensor integration — 10/10 complete
 

@@ -38,11 +38,12 @@
                 <figcaption class="fw-semibold">Azimuth Angle</figcaption>
                 <svg class="angle-gauge azimuth-gauge" viewBox="-90 -20 420 300" role="img" [attr.aria-label]="'Azimuth Angle: ' + (azimuthReading === null ? 'Not available' : azimuthReading + ' degrees')">
                   <circle class="gauge-unused-range" cx="120" cy="120" r="82" />
-                  <path *ngIf="azimuthAllowedArc" class="gauge-range" [attr.d]="azimuthAllowedArc"><title>Allowed azimuth: {{ azimuthRange }}</title></path>
-                  <text class="gauge-label" x="120" y="20">N</text>
-                  <text class="gauge-label" x="224" y="125">E</text>
-                  <text class="gauge-label" x="120" y="232">S</text>
-                  <text class="gauge-label" x="16" y="125">W</text>
+                  <path *ngIf="azimuthAllowedArc" class="gauge-range" [attr.d]="azimuthAllowedArc" />
+                  <text class="gauge-label" x="120" y="20">0°</text>
+                  <text class="gauge-label" x="224" y="125">+90°</text>
+                  <text class="gauge-label" x="15" y="201">−130°</text>
+                  <text class="gauge-label" x="225" y="201">+130°</text>
+                  <text class="gauge-label" x="16" y="125">−90°</text>
                   <g *ngIf="azimuthReading !== null" class="gauge-needle azimuth-needle" [attr.transform]="'rotate(' + azimuthReading + ' 120 120)'">
                     <line x1="120" y1="120" x2="120" y2="55" />
                     <path d="M 120 39 L 114 58 L 126 58 Z" />
@@ -107,7 +108,7 @@
                 </div>
                 <strong>Position</strong>
                 <div class="ps-2">
-                  Azimuth Angle: {{ reading?.azimuth_angle }}&deg;<br>
+                  Azimuth Angle: {{ azimuthReading !== null ? (azimuthReading | number:'1.2-2') + '°' : 'Not available' }}<br>
                   <span class="el-encoder-reading">Elevation Angle: {{ reading?.el_encoder_angle != null ? (reading?.elevation_angle | number:'1.2-2') + '°' : 'Not available' }}</span>
                 </div>
                 <strong>Gyroscope</strong>
@@ -146,45 +147,35 @@
               </div>
             </div>
           </div>
-          <p class="small text-muted">
-            Software hold only: moves to the latest reported position and may be delayed.
-            Use the physical E-stop for emergencies.
-          </p>
-
           <div *ngIf="commandError" class="alert alert-danger py-2" role="alert">{{ commandError }}</div>
           <div *ngIf="calibrationMessage" class="small text-warning mb-2">{{ calibrationMessage }}</div>
-          <div *ngIf="telescopeMetadata" class="small text-muted mb-2">
-            Offset: {{ telescopeMetadata.az_encoder_offset | number:'1.0-2' }}°. Allowed azimuth: {{ azimuthRange }}.
-            <div *ngIf="telescopeMetadata.az_range_temporary">Temporary test range; opposite stop is assumed and still needs measurement.</div>
-            <div *ngIf="telescopeMetadata.az_reference === 'MANUAL_ALIGNMENT'">Reference: MANUAL_ALIGNMENT. AZ is encoder-derived; base levelling and true-north alignment are manual. Absolute accuracy is unverified.</div>
-            <ng-container *ngIf="telescopeMetadata.az_reference !== 'MANUAL_ALIGNMENT'">
-              <div *ngIf="telescopeMetadata.az_alignment_verified !== true" class="text-warning">Uncalibrated heading estimate — accuracy unverified.</div>
-              <div *ngIf="telescopeMetadata.mag_declination_supported === false" class="text-warning">Declination is unavailable for the configured location or date.</div>
-            </ng-container>
-          </div>
 
           <div *ngIf="isPointing">
             <div class="row mt-2">
               <div class="col">
-                <label class="form-label">Azimuth Angle (0° - 360°)</label>
+                <label class="form-label">Azimuth Angle (−130° to +130°)</label>
                 <input
                   class="form-control"
                   type="number"
                   [(ngModel)]="azimuth_angle"
-                  min="0"
-                  max="360"
-                  placeholder="0 - 360"
+                  (ngModelChange)="markPointInputsEdited()"
+                  min="-130"
+                  max="130"
+                  step="any"
+                  placeholder="−130 to +130"
                 >
               </div>
               <div class="col">
-                <label class="form-label">Elevation Angle (0° - 360°)</label>
+                <label class="form-label">Elevation Angle (0° to 90°)</label>
                 <input
                   class="form-control"
                   type="number"
                   [(ngModel)]="elevation_angle"
+                  (ngModelChange)="markPointInputsEdited()"
                   min="0"
-                  max="360"
-                  placeholder="0 - 360"
+                  max="90"
+                  step="any"
+                  placeholder="0 to 90"
                 >
               </div>
             </div>

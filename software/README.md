@@ -66,8 +66,8 @@ In that encoder-only frame, `250°`, `350°`, and `20°` are allowed and `100°`
 rejected. The user confirmed tests at `20°`, `30°`, and `200°` without
 limit-switch strikes. The operator now confirms both stops and clockwise 1:1
 encoder mapping. These
-raw test angles must be shifted by the displayed offset when testing north-based
-Point commands; use the UI's current allowed range.
+raw test angles must be shifted by the recorded offset for referenced Point
+commands; the UI displays the resulting signed AZ angle.
 
 ASTT-043 uses `USE_MANUAL_AZ_REFERENCE = true` with recorded
 `encoderAtNorth = 267.8°`, the midpoint along the verified 260° raw arc.
@@ -89,14 +89,13 @@ diagnostic true heading, not manual Point. Celestial Track keeps its real-UTC
 requirement. Firmware enforces encoder availability. Existing telescope metadata
 publication is best effort, not permission for local motor movement. CAM
 refreshes numeric limits/offset on new readings and before commands without
-starting motion. Old readiness/calibration flags do not block Point. Manual UI
-shows `MANUAL_ALIGNMENT` without compass-calibration/date errors;
-frontend/backend keep the numeric raw-arc checks. True `0°/360°`
+starting motion. Old readiness/calibration flags do not block Point. Alignment
+metadata stays internal; frontend/backend keep the numeric raw-arc checks. True `0°/360°`
 is rejected if subtracting the offset places it inside the blocked raw arc.
 
 ### CAM reading views
 
-The sensor panel opens in **Simple**: an AZ compass gauge (0° up, N/E/S/W),
+The sensor panel opens in **Simple**: a signed AZ gauge (0° up, −130° to +130°),
 an EL quadrant (0° right at the horizon, 90° up), and GPS below. Larger measured
 values follow the arrow tips just outside each arc, on white backgrounds. **Raw** shows all existing sensor fields and Show more diagnostics.
 Both views use the same live reading; switching never sends a command.
@@ -108,6 +107,21 @@ not yet available: its quadrant is a display scale, not a permitted-motion range
 EL values outside 0–90° remain visible numerically with no clamped needle.
 Missing feedback shows Not available. Reference and hardware qualification remain
 separate from ASTT-097/098's UI work.
+
+### UI Point angles (ASTT-099)
+
+Manual Point accepts **AZ −130° to +130°** and **EL 0° to 90°**. Only the UI
+changes representation: AZ −90° sends API 270°, and API 275° displays −85°.
+CAM Simple/Raw views, its history chart, the Readings table and command history
+all show signed AZ. Existing encoder limits/offsets, API angles and firmware
+remain unchanged; readings already include the reference offset.
+
+Targets start at `(0, 0)` and initialize once from valid, in-range readings on
+the initial load. A failed initial load leaves those defaults. Edits made before
+that response, later polling and Point/Track switching never overwrite targets.
+Actual telemetry is never clamped to the input range. Hold still sends the exact
+latest API angles. Reference/offset and software-hold helper paragraphs are
+removed from the UI; serial diagnostics remain verbatim in Show more.
 
 ### Remote reading diagnostics
 
@@ -127,8 +141,8 @@ refreshes every five seconds and CAM recovers after transient poll failures.
 Reading refreshes never submit motion commands. The history graph retains its
 Load graph/date/sampling controls. Magnetic fields remain Tesla in the API.
 
-Point temporarily accepts EL angles from 0 to 360 degrees for the encoder tests.
-This is the angle domain, not a measured travel range. EL Point continues
+The API/firmware still accept EL angles from 0 to 360 degrees for encoder tests;
+the manual UI Point form now limits EL to 0–90°. Neither is a measured travel range. EL Point continues
 until it reaches the encoder target within 1° tolerance; the firmware stops on
 arrival, lost/stale feedback, E-stop or ten seconds without command communication. Physical switches cut motor power while stops are being measured.
 EL celestial tracking is disabled for this phase; signed midpoint coordinates
@@ -217,6 +231,7 @@ emergencies; its qualification remains ASTT-051. No new API endpoint is added.
 | ASTT-043 | Manual reference implemented; independent accuracy pending | Fixed midpoint north, unchanged raw limits, encoder-derived AZ and separate magnetic diagnostics; no new controls. |
 | ASTT-092 | Software verified | Optional reading diagnostics, preserved legacy rows, actual sensor health, and escaped Show more in reading views. |
 | ASTT-093 | Software verified; powered checks pending | HTTP worker keeps feedback active during requests, motor PWM no longer pauses for HTTP, and device rows use latest-reading health/freshness. |
+| ASTT-099 | Software verified | Signed AZ display/input, EL 0–90° input, one-time initial targets and minimal control-panel text; API/firmware unchanged. |
 
 ASTT-055 basic encoder-feedback EL Point movement is complete per operator
 confirmation in both directions. Measured limits, zero and full qualification

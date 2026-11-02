@@ -46,6 +46,14 @@ describe('ReadingsComponent', () => {
     expect(component).toBeTruthy();
   });
 
+  it('displays signed azimuth without altering stored readings', () => {
+    component.readings = [230, 275, 0, 130, 360].map(azimuth_angle => sensorReading({ azimuth_angle }));
+    fixture.detectChanges();
+    const values: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll('.azimuth-reading');
+    expect(Array.from(values).map(value => value.textContent?.trim())).toEqual(['-130.00°', '-85.00°', '0.00°', '130.00°', '0.00°']);
+    expect(component.readings[1].azimuth_angle).toBe(275);
+  });
+
   it('displays referenced elevation including zero and missing feedback', () => {
     component.readings = [
       sensorReading({ el_encoder_angle: 16.92, elevation_angle: 36.92 }),
