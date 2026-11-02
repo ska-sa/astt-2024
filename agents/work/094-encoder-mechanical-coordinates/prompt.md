@@ -4,6 +4,19 @@
 **Area:** Hardware | Integration
 **Priority:** CRITICAL
 
+## Next phase — signed AZ input (requested 2026-11-02)
+
+After the current gauge UI review, implement AZ angles from **-130° to +130°**,
+including negative user inputs. Start with AZ; EL midpoint work still awaits its
+recorded stops. Preserve the raw AZ endpoints and recorded midpoint, and update
+command validation, target conversion, readings and graph labels consistently.
+This is queued work; the current UI refinement does not change coordinates.
+
+- [ ] Accept reachable negative AZ targets, including values close to both ends.
+- [ ] Keep encoder limits and safe-path checks in the original raw frame.
+- [ ] Show signed measured AZ consistently in gauges, tables and history.
+- [ ] Verify midpoint/endpoint conversions and existing timeout/E-stop behavior.
+
 ## Goal and implementation order
 
 Reliable encoder-feedback movement, not automatic north-finding or absolute accuracy.

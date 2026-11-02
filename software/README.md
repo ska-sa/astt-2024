@@ -94,6 +94,21 @@ shows `MANUAL_ALIGNMENT` without compass-calibration/date errors;
 frontend/backend keep the numeric raw-arc checks. True `0°/360°`
 is rejected if subtracting the offset places it inside the blocked raw arc.
 
+### CAM reading views
+
+The sensor panel opens in **Simple**: an AZ compass gauge (0° up, N/E/S/W),
+an EL quadrant (0° right at the horizon, 90° up), and GPS below. Larger measured
+values follow the arrow tips just outside each arc, on white backgrounds. **Raw** shows all existing sensor fields and Show more diagnostics.
+Both views use the same live reading; switching never sends a command.
+
+The AZ gauge shows allowed travel in gray and unused travel in white, using
+the current encoder endpoints plus the published offset. The arc stays fixed when only AZ moves. Readings already
+contain their reference offset and are not shifted again. EL travel limits are
+not yet available: its quadrant is a display scale, not a permitted-motion range.
+EL values outside 0–90° remain visible numerically with no clamped needle.
+Missing feedback shows Not available. Reference and hardware qualification remain
+separate from ASTT-097/098's UI work.
+
 ### Remote reading diagnostics
 
 The firmware sends `elevation_angle = norm360(el_encoder_angle + EL_ENCODER_OFFSET)`.

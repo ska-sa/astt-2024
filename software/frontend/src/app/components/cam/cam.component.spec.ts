@@ -90,6 +90,110 @@ describe('CamComponent', () => {
     expect(component).toBeTruthy();
   });
 
+  describe('simple sensor readings', () => {
+    beforeEach(() => {
+      spyOn(component, 'loadReading');
+      spyOn(component, 'startPollingReadings');
+      spyOn(component, 'getSources');
+      spyOn(component, 'loadGraph');
+    });
+
+    it('defaults to two gauges and GPS, with all details available through Raw without submitting a command', () => {
+      const reading = sensorReading({ azimuth_angle: 30, elevation_angle: 42.5, serial_log: 'latest diagnostic' });
+      component.reading = reading;
+      fixture.detectChanges();
+      const panel: HTMLElement = fixture.nativeElement.querySelector('.sensor-readings');
+      const buttons = panel.querySelectorAll<HTMLButtonElement>('.readings-view button');
+      const targetAz = component.azimuth_angle;
+      const targetEl = component.elevation_angle;
+      expect(panel.querySelectorAll('svg').length).toBe(2);
+      expect(panel.textContent).toContain('30.00°');
+      expect(panel.textContent).toContain('42.50°');
+      expect(panel.querySelector('.gps-location')?.textContent).toContain('Latitude: 0.00000°');
+      expect(panel.querySelector('.gps-location')?.textContent).toContain('Altitude: 0 m');
+      expect(panel.textContent).not.toContain('Acceleration X');
+      expect(buttons[0].getAttribute('aria-pressed')).toBe('true');
+
+      buttons[1].click(); fixture.detectChanges();
+      expect(panel.querySelectorAll('svg').length).toBe(0);
+      for (const label of ['Health', 'GPS', 'Accelerometer', 'Magnetometer', 'Position', 'Gyroscope']) {
+        expect(panel.textContent).toContain(label);
+      }
+      expect(panel.querySelector('pre')?.textContent).toBe('latest diagnostic');
+      expect(buttons[1].getAttribute('aria-pressed')).toBe('true');
+      buttons[0].click(); fixture.detectChanges();
+      expect(panel.querySelectorAll('svg').length).toBe(2);
+      expect(component.reading).toBe(reading);
+      expect(component.azimuth_angle).toBe(targetAz);
+      expect(component.elevation_angle).toBe(targetEl);
+      expect(component.isPointing).toBeTrue();
+      expect(commandService.postCommand).not.toHaveBeenCalled();
+    });
+
+    it('orients AZ clockwise from north and updates the measured value without applying another offset', () => {
+      fixture.detectChanges();
+      component.telescopeMetadata = { ...metadata, az_encoder_offset: 92.2 };
+      for (const angle of [0, 90, 180, 270, 360]) {
+        component.reading = sensorReading({ azimuth_angle: angle });
+        fixture.detectChanges();
+        const gauge: SVGElement = fixture.nativeElement.querySelector('.azimuth-gauge');
+        expect(gauge.querySelector('.azimuth-needle')?.getAttribute('transform')).toBe(`rotate(${angle} 120 120)`);
+        expect(fixture.nativeElement.querySelector('.azimuth-reading')?.textContent).toBe(`${angle.toFixed(2)}°`);
+        expect(gauge.getAttribute('aria-label')).toBe(`Azimuth Angle: ${angle} degrees`);
+      }
+    });
+
+    it('draws the allowed AZ arc through zero and keeps it fixed when only the reading moves', () => {
+      component.telescopeMetadata = { ...metadata, az_encoder_max: 37.8, az_encoder_offset: 92.2 };
+      const arc = component.azimuthAllowedArc!;
+      const numbers = arc.match(/-?\d+(?:\.\d+)?/g)!.map(Number);
+      expect(numbers[0]).toBeCloseTo(120 + 82 * Math.sin(230 * Math.PI / 180), 5);
+      expect(numbers[1]).toBeCloseTo(120 - 82 * Math.cos(230 * Math.PI / 180), 5);
+      expect(numbers.slice(2, 7)).toEqual([82, 82, 0, 1, 1]);
+      expect(numbers[7]).toBeCloseTo(120 + 82 * Math.sin(130 * Math.PI / 180), 5);
+      expect(numbers[8]).toBeCloseTo(120 - 82 * Math.cos(130 * Math.PI / 180), 5);
+      component.reading = sensorReading({ azimuth_angle: 10 });
+      expect(component.azimuthAllowedArc).toBe(arc);
+      component.reading = sensorReading({ azimuth_angle: 300 });
+      expect(component.azimuthAllowedArc).toBe(arc);
+      component.telescopeMetadata = { ...metadata, az_encoder_min: 0, az_encoder_max: 90 };
+      expect(component.azimuthAllowedArc).toContain(' A 82 82 0 0 1 ');
+      component.telescopeMetadata = null;
+      expect(component.azimuthAllowedArc).toBeNull();
+    });
+
+    it('orients EL from the right horizon to vertical and keeps off-scale values without clamping', () => {
+      fixture.detectChanges();
+      for (const angle of [0, 45, 90]) {
+        component.reading = sensorReading({ elevation_angle: angle });
+        fixture.detectChanges();
+        expect(fixture.nativeElement.querySelector('.elevation-needle').getAttribute('transform'))
+          .toBe(`rotate(${-angle} 56 202)`);
+      }
+      component.reading = sensorReading({ elevation_angle: 275, el_encoder_angle: 255 });
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.el-encoder-reading').textContent).toBe('275.00°');
+      expect(fixture.nativeElement.querySelector('.elevation-needle')).toBeNull();
+      expect(commandService.postCommand).not.toHaveBeenCalled();
+    });
+
+    it('does not invent a position for absent or invalid feedback and preserves offline styling', () => {
+      fixture.detectChanges();
+      const panel: HTMLElement = fixture.nativeElement.querySelector('.sensor-readings');
+      expect(panel.querySelectorAll('.gauge-needle').length).toBe(0);
+      expect(panel.textContent).toContain('Not available');
+      expect(panel.classList).toContain('sensor-offline');
+      component.reading = sensorReading({ azimuth_angle: NaN, elevation_angle: 0, el_encoder_angle: null });
+      fixture.detectChanges();
+      expect(panel.querySelectorAll('.gauge-needle').length).toBe(0);
+      expect(panel.querySelector('svg')?.getAttribute('aria-label')).toContain('Not available');
+      component.reading = sensorReading({ el_encoder_angle: Infinity });
+      fixture.detectChanges();
+      expect(panel.querySelector('.elevation-needle')).toBeNull();
+      expect(panel.querySelector('.el-encoder-reading')?.textContent).toBe('Not available');
+    });
+  });
+
   it('displays referenced elevation, recovers polling and shows missing input', fakeAsync(() => {
     spyOn(component, 'loadReading');
     spyOn(component, 'getSources');
@@ -138,6 +242,7 @@ describe('CamComponent', () => {
       of(sensorReading({ id: 102, health_status: 'FAULT', movement_status: 'ESTOP', serial_log: 'E-stop active' })),
       of(sensorReading({ id: 103, health_status: 'OK', created_at: new Date(Date.now() - 20000).toISOString(), serial_log: null }))
     );
+    component.readingsView = 'raw';
     fixture.detectChanges();
     const element: HTMLElement = fixture.nativeElement as HTMLElement;
     const panel: HTMLElement = element.querySelector<HTMLElement>('.sensor-readings')!;
@@ -206,6 +311,7 @@ describe('CamComponent', () => {
     });
     const originalReading: Reading = { ...reading };
     component.reading = reading;
+    component.readingsView = 'raw';
     fixture.detectChanges();
     const element: HTMLElement = fixture.nativeElement as HTMLElement;
 
@@ -236,7 +342,7 @@ describe('CamComponent', () => {
     spyOn(component, 'loadGraph');
     fixture.detectChanges();
     const element: HTMLElement = fixture.nativeElement as HTMLElement;
-    const navigation: HTMLElement = element.querySelector<HTMLElement>('.btn-group')!;
+    const navigation: HTMLElement = element.querySelector<HTMLElement>('[aria-labelledby="command-type-label"]')!;
     expect(element.querySelector('#command-type-label')?.textContent).toContain('Command type');
     expect(navigation.getAttribute('aria-labelledby')).toBe('command-type-label');
     expect(navigation.querySelectorAll('button.btn-outline-primary').length).toBe(2);
@@ -256,7 +362,7 @@ describe('CamComponent', () => {
       expect(submit.textContent?.trim()).toBe(isPointing ? 'Send Point' : 'Send Track');
       expect(submit.querySelector(isPointing ? '.fa-crosshairs' : '.fa-satellite-dish')).not.toBeNull();
       expect(hold.querySelector('.fa-stop')).not.toBeNull();
-      expect(element.querySelector('.btn-group')?.textContent).not.toContain('Stop');
+      expect(navigation.textContent).not.toContain('Stop');
       const modeButtons: NodeListOf<HTMLButtonElement> = navigation.querySelectorAll<HTMLButtonElement>('button');
       expect(modeButtons[0].getAttribute('aria-pressed')).toBe(String(isPointing));
       expect(modeButtons[1].getAttribute('aria-pressed')).toBe(String(!isPointing));
@@ -505,6 +611,7 @@ describe('CamComponent', () => {
         serial_log: diagnostic
       });
       component.reading = reading;
+      component.readingsView = 'raw';
       fixture.detectChanges();
       const element: HTMLElement = fixture.nativeElement as HTMLElement;
       const panel: HTMLElement = element.querySelector<HTMLElement>('.sensor-readings')!;

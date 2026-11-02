@@ -63,6 +63,7 @@ export class CamComponent {
   private metadataTelescopeId: number | null = null;
   private loadedTelescopeId: number | null = null;
 
+  readingsView: 'simple' | 'raw' = 'simple';
   reading: Reading | null = null;
   lastActiveAt: Date | null = null;
   isDeviceOnline = false;
@@ -120,6 +121,50 @@ export class CamComponent {
       const id = params.get('id');
       this.telescopeId = id ? +id : null;
     });
+  }
+
+  get azimuthReading(): number | null {
+    const angle = this.reading?.azimuth_angle;
+    return angle != null && Number.isFinite(angle) && angle >= 0 && angle <= 360 ? angle : null;
+  }
+
+  get elevationReading(): number | null {
+    const angle = this.reading?.elevation_angle;
+    const encoder = this.reading?.el_encoder_angle;
+    return encoder != null && Number.isFinite(encoder)
+      && angle != null && Number.isFinite(angle) && angle >= 0 && angle <= 360 ? angle : null;
+  }
+
+  get azimuthLabelPosition(): { x: number; y: number } {
+    if (this.azimuthReading === null) return { x: 70, y: 104 };
+    const angle = this.azimuthReading * Math.PI / 180;
+    const horizontal = Math.sin(angle);
+    return {
+      x: 120 + 104 * horizontal - (horizontal > 0.25 ? 0 : horizontal < -0.25 ? 100 : 50),
+      y: 120 - 104 * Math.cos(angle) - 16
+    };
+  }
+
+  get elevationLabelPosition(): { x: number; y: number } {
+    if (this.elevationReading === null || this.elevationReading > 90) return { x: 95, y: 114 };
+    const angle = this.elevationReading * Math.PI / 180;
+    const horizontal = Math.cos(angle);
+    return {
+      x: 56 + 170 * horizontal - (horizontal > 0.25 ? 0 : 50),
+      y: 202 - 170 * Math.sin(angle) - 16
+    };
+  }
+
+  get azimuthAllowedArc(): string | null {
+    if (!this.telescopeMetadata) return null;
+    const { az_encoder_min, az_encoder_max, az_encoder_offset } = this.telescopeMetadata;
+    const span = this.normalizeAzimuth(az_encoder_max - az_encoder_min);
+    if (span === 0) return null;
+    const start = this.normalizeAzimuth(az_encoder_min + az_encoder_offset) * Math.PI / 180;
+    const end = start + span * Math.PI / 180;
+    // SVG angles start at the top and increase clockwise, matching the AZ display.
+    return `M ${120 + 82 * Math.sin(start)} ${120 - 82 * Math.cos(start)}`
+      + ` A 82 82 0 ${span > 180 ? 1 : 0} 1 ${120 + 82 * Math.sin(end)} ${120 - 82 * Math.cos(end)}`;
   }
 
   ngOnInit(): void {

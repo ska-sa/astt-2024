@@ -9,7 +9,15 @@ agents/work/NNN-short-title/
 ```
 
 Use the existing `ASTT-NNN` number from the root checklist. The next number for
-a new, unlisted item is **097**. Current project progress is **41/89 complete**.
+a new, unlisted item is **099**. Current project progress is **43/91 complete**.
+
+## Current UI work — 2026-11-02
+
+- **DONE:** [097 Simple/Raw CAM readings](097-cam-reading-views/completion.md).
+- **DONE:** [098 AZ/EL gauges and GPS](098-cam-angle-gauges/completion.md).
+- **NEXT:** [094 signed AZ input, -130° to +130°](094-encoder-mechanical-coordinates/prompt.md),
+  starting with AZ after the gauge UI review; EL midpoint work follows measured stops.
+- Mechanical limits/references and deferred sensor qualification keep their existing tasks.
 
 ## Current plan — 2026-10-30
 

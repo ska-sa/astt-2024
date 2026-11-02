@@ -19,3 +19,47 @@ h5 {
     background-color: #f1f3f5;
     color: #6c757d;
 }
+
+.readings-header {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas: "title status view";
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.readings-header h5 { grid-area: title; }
+.readings-status { grid-area: status; }
+.readings-view { grid-area: view; justify-self: end; }
+
+@media (max-width: 575.98px) {
+    .readings-header {
+        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-areas: "title view" "status status";
+    }
+}
+
+.angle-gauge {
+    display: block;
+    width: 100%;
+    max-width: 360px;
+    margin: 0 auto;
+    overflow: visible;
+}
+
+.gauge-track, .gauge-range, .gauge-unused-range {
+    fill: none;
+    stroke-width: 12;
+}
+
+.gauge-track, .gauge-range { stroke: #dee2e6; }
+.gauge-unused-range { stroke: #fff; }
+.gauge-horizon { stroke: #adb5bd; stroke-width: 2; stroke-dasharray: 4 4; }
+.gauge-needle { fill: #0d6efd; stroke: #0d6efd; stroke-width: 3; }
+.gauge-pivot { fill: currentColor; }
+.gauge-label { fill: currentColor; text-anchor: middle; font-size: 14px; }
+.gauge-value-label { pointer-events: none; }
+.gauge-value-label rect { fill: #fff; }
+.gauge-value { fill: currentColor; text-anchor: middle; font-size: 22px; font-weight: 600; }
+.gauge-unavailable { font-size: 14px; font-weight: 400; }
+.sensor-offline .gauge-needle { fill: #6c757d; stroke: #6c757d; }
