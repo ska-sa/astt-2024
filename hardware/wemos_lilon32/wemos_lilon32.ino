@@ -57,10 +57,10 @@ const int AZ_MAX_PWM = 255;
 const float EL_MIN = 0.0;
 const float EL_MAX = 360.0;  // encoder angle domain; physical switches protect test travel
 const float EL_ENCODER_OFFSET = 0.0f;  // displayed angle = encoder + offset; future sensor reference
-const float EL_TOLERANCE = 1.0;
-const float EL_RAMP_RANGE = 30.0;
 const int EL_MIN_PWM = 255;  // full duty for the current EL movement test
 const int EL_MAX_PWM = 255;
+const float EL_TOLERANCE = 0.01;
+const float EL_RAMP_RANGE = 30.0;
 const int EL_MOTOR_SIGN = -1;  // positive drive decreases the encoder reading
 
 
@@ -92,6 +92,7 @@ bool azPointActive = false;
 bool azPointComplete = false;
 bool elPointActive = false;
 bool elPointComplete = false;
+int elPointDirection = 0;
 
 
 // ---------- tracking ----------
@@ -581,14 +582,20 @@ int controlElevation(unsigned long now) {
     return 0;
   }
   float error = signedAngleDifference(elEncoderAngle, elevationToEncoder(apiElTarget));
+  int direction = error > 0 ? 1 : -1;
   int pwm = computeElevationPwm(fabs(error));
-  if (pwm == 0) {
+  // A sample can step over a tiny tolerance; stop instead of reversing to chase it.
+  bool crossedTarget = elPointDirection != 0 && direction != elPointDirection;
+  if (pwm == 0 || crossedTarget) {
     stopElevationMotor();
     elPointActive = false;
     elPointComplete = true;
-    commandMessage = "EL_POINT_COMPLETE";
+    elPointDirection = 0;
+    commandMessage = pwm == 0 ? "EL_POINT_COMPLETE" : "EL_TARGET_CROSSED";
+    pwm = 0;
   } else {
-    driveElevationMotor(pwm, (error > 0 ? 1 : -1) * EL_MOTOR_SIGN);
+    elPointDirection = direction;
+    driveElevationMotor(pwm, direction * EL_MOTOR_SIGN);
     movementStatus = "MOVING";
   }
   return pwm;
@@ -945,6 +952,7 @@ void clearCommandTargets() {
   azPointComplete = false;
   elPointActive = false;
   elPointComplete = false;
+  elPointDirection = 0;
   apiAzTarget = -1.0f;
   apiElTarget = -1.0f;
   isTracking = false;
@@ -993,6 +1001,7 @@ bool startPoint(float azimuth, float elevation) {
   azPointComplete = false;
   elPointActive = true;
   elPointComplete = false;
+  elPointDirection = 0;
   isTracking = false;
   lastApiTime = millis();
   commandMessage = "POINT_ACCEPTED";

@@ -71,7 +71,8 @@ For the supervised test after your upload:
    its current reading, with clearance and physical E-stop available.
 2. Verify the encoder approaches the target and stops. If it moves away, stop;
    reverse `EL_MOTOR_SIGN` before retrying. Check a small move in each direction.
-3. EL continues until the encoder target is reached within 1° tolerance. There
+3. EL uses full PWM 255 (minimum and maximum), stopping within 0.01° tolerance
+   or when a sample crosses the target, to avoid repeated reversals. There
    is no fixed movement duration. Missing/stale feedback, ten seconds without
    command communication or E-stop still stop it. Repeated polling keeps an
    active move alive but cannot restart a completed/stopped Point. Record both

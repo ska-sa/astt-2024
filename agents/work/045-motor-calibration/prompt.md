@@ -57,3 +57,10 @@ tolerance, and slow-down range for both axes.
 ## Verification
 
 Follow the motor-calibration procedure with one axis powered at a time and retain the measured values.
+
+## Authorized EL-only follow-up — 2026-11-02
+
+After confirming master sensor readings are reliable, the operator requests EL
+minimum/maximum PWM together at 255 and the earlier 0.01° tolerance. Keep AZ,
+sensor code and timing unchanged. Stop on EL target crossing to avoid chasing
+a sample that skipped the tiny tolerance. No automatic hold or other refactor.
