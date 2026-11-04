@@ -1,6 +1,6 @@
 # ASTT-096: Replace the EL motor with a faster suitable motor
 
-**Status:** TODO
+**Status:** IN PROGRESS — operator reports faster EL motion; retesting underway
 **Area:** Hardware | Motion control
 **Priority:** HIGH
 
@@ -43,3 +43,10 @@ future stall detection/startup assistance.
 
 Likely files: hardware motor/mounting notes, wiring documentation and only the
 firmware settings demonstrated necessary by testing.
+
+## Operator update — 2026-11-03
+
+Operator reports a faster motor is moving EL and is still testing. Requested
+EL minimum PWM reduced to 210, matching the unchanged AZ minimum; EL maximum
+remains 255 and the existing ramp/control is retained. Model/specifications,
+loaded stopping and the other acceptance checks still need recording.

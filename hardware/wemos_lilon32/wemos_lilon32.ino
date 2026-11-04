@@ -47,17 +47,26 @@ const bool USE_MANUAL_AZ_REFERENCE = true;
 // norm360(137.8 + 260/2) = 267.8, not the arithmetic average of the stops.
 // Manually level and north-align the base at this encoder position before use.
 const float encoderAtNorth = 267.8f;
-const float AZ_TOLERANCE = 1.0;
+const float AZ_TOLERANCE = 0.1;
 const float AZ_RAMP_RANGE = 60.0;
-const int AZ_MIN_PWM = 210;
+const int AZ_MIN_PWM = 150;
 const int AZ_MAX_PWM = 255;
+const float AZ_FINE_RANGE = 1;  // Short corrections near the target, then let the gear settle.
+const unsigned long AZ_FINE_PULSE_MS = 80;
+const unsigned long AZ_SETTLE_MS = 300;
+int azDriveDirection = 0;
+bool azSettling = false;
+unsigned long azMotionChangedAt = 0;
+float azSpeedDps = NAN;
+float azSpeedEncoder = NAN;
+unsigned long azSpeedSampleAt = 0;
 
 
 // ---------- elevation control ----------
 const float EL_MIN = 0.0;
 const float EL_MAX = 360.0;  // encoder angle domain; physical switches protect test travel
-const float EL_ENCODER_OFFSET = 0.0f;  // displayed angle = encoder + offset; future sensor reference
-const int EL_MIN_PWM = 255;  // full duty for the current EL movement test
+const float EL_ENCODER_OFFSET = -19.63f;  // operator zero: previous UI 46.70 - previous offset 27.07 = raw 19.63
+const int EL_MIN_PWM = 128;  // match current AZ minimum while testing the faster EL motor
 const int EL_MAX_PWM = 255;
 const float EL_TOLERANCE = 0.01;
 const float EL_RAMP_RANGE = 30.0;
@@ -552,6 +561,25 @@ void driveElevationMotor(int pwm, int direction) {
 }
 
 
+// Estimate speed from the existing filtered encoder; sampling itself is unchanged.
+void updateAzimuthSpeed(float angle, unsigned long now) {
+  if (!azEncoderValid || !isfinite(angle)) {
+    azSpeedEncoder = azSpeedDps = NAN;
+    return;
+  }
+  if (!isfinite(azSpeedEncoder)) {
+    azSpeedEncoder = angle;
+    azSpeedSampleAt = now;
+    return;
+  }
+  unsigned long elapsed = now - azSpeedSampleAt;
+  if (elapsed < 250) return;
+  azSpeedDps = signedAngleDifference(azSpeedEncoder, angle) * 1000.0f / elapsed;
+  azSpeedEncoder = angle;
+  azSpeedSampleAt = now;
+}
+
+
 // Stop inside tolerance; otherwise use the configured PWM range.
 int computeAzimuthPwm(float errorSize) {
   if (errorSize < AZ_TOLERANCE) return 0;
@@ -872,11 +900,13 @@ void readSensors() {
 String buildDiagnosticLine(float encoderAngle, float encoderTarget, int direction, int azPwm, int elPwm) {
   char line[1024];
   snprintf(line, sizeof(line),
-           "ms=%lu health=%s state=%s cmd=%d last_event=%s enc=%.2f az=%.2f el=%.2f elEnc=%.2f EL_ENC=%s target=%.2f/%.2f rawTarget=%.2f dir=%d reqPWM=%d/%d magnetic=%.2f decl=%.4f true=%.2f offset=%.2f ref=%s ENC=%s MAG=%s heading=%s mag_uT=%.2f/%.2f/%.2f MPU=%s accel_ms2=%.2f/%.2f/%.2f gyro_dps=%.2f/%.2f/%.2f base=%.1f/%.1f GPS=%s lat=%.5f lon=%.5f alt_m=%.1f site=%s http_prev(command/reading/metadata)=%d/%d/%d",
+           "ms=%lu health=%s state=%s cmd=%d last_event=%s enc=%.2f az=%.2f el=%.2f elEnc=%.2f EL_ENC=%s target=%.2f/%.2f rawTarget=%.2f dir=%d reqPWM=%d/%d azSpeed_dps=%.2f azError=%.3f magnetic=%.2f decl=%.4f true=%.2f offset=%.2f ref=%s ENC=%s MAG=%s heading=%s mag_uT=%.2f/%.2f/%.2f MPU=%s accel_ms2=%.2f/%.2f/%.2f gyro_dps=%.2f/%.2f/%.2f base=%.1f/%.1f GPS=%s lat=%.5f lon=%.5f alt_m=%.1f site=%s http_prev(command/reading/metadata)=%d/%d/%d",
            millis(), healthStatus.c_str(), movementStatus.c_str(), lastCommandId, commandMessage.c_str(),
            encoderAngle, azimuthAngle, elevationAngle, elEncoderAngle, elEncoderValid ? "OK" : "ERR",
            apiAzTarget, apiElTarget, encoderTarget,
-           direction, azPwm, elPwm, magneticHeading, declination, trueHeading, azEncoderOffset,
+           direction, azPwm, elPwm, azSpeedDps,
+           apiAzTarget >= 0 ? signedAngleDifference(encoderToTrueAzimuth(encoderAngle), apiAzTarget) : NAN,
+           magneticHeading, declination, trueHeading, azEncoderOffset,
            USE_MANUAL_AZ_REFERENCE ? "MANUAL_ALIGNMENT"
              : (azNorthReferenceReady ? "COMPASS_ESTIMATE" : "SENSOR_UNAVAILABLE"),
            azEncoderValid ? "OK" : "ERR", magneticSampleValid ? "OK" : "ERR",
@@ -892,6 +922,7 @@ String buildDiagnosticLine(float encoderAngle, float encoderTarget, int directio
 
 void updateDiagnostics(unsigned long now, float encoderAngle, float encoderTarget,
                        int direction, int azPwm, int elPwm) {
+  updateAzimuthSpeed(encoderAngle, millis());
   updateHealthStatus();
   serialLog = buildDiagnosticLine(encoderAngle, encoderTarget, direction, azPwm, elPwm);
   if (now - lastDiagnosticTime >= 1000) {
@@ -928,7 +959,7 @@ bool postReadings() {
 }
 
 
-// A repeated ID is a heartbeat, not permission to restart a completed or stopped Point.
+// A repeated ID is a heartbeat; it never restarts a cancelled command or resets a correction.
 bool acceptCommandId(int commandId) {
   if (commandId <= 0) { commandMessage = "INVALID_COMMAND_ID"; return false; }
   if (!commandBaselineReady) {
@@ -950,6 +981,9 @@ void clearCommandTargets() {
   stopElevationMotor();
   azPointActive = false;
   azPointComplete = false;
+  azDriveDirection = 0;
+  azSettling = false;
+  azMotionChangedAt = 0;
   elPointActive = false;
   elPointComplete = false;
   elPointDirection = 0;
@@ -971,9 +1005,45 @@ void expireCommand(unsigned long now) {
 
 void finishAzPoint() {
   stopAzimuthMotor();
-  azPointActive = false;
-  azPointComplete = true;
-  commandMessage = "AZ_POINT_COMPLETE";
+  // Keep this command active for encoder-based hold; faults/timeout still cancel it.
+  azPointComplete = !isTracking;
+  azDriveDirection = 0;
+  azSettling = true;
+  azMotionChangedAt = millis();
+  if (!isTracking) commandMessage = "AZ_POINT_COMPLETE";
+}
+
+
+int controlAzimuth(float error, int direction, unsigned long now) {
+  if (error < AZ_TOLERANCE) {
+    finishAzPoint();
+    movementStatus = "IDLE";
+    return 0;
+  }
+  azPointComplete = false;
+  if (azSettling && now - azMotionChangedAt < AZ_SETTLE_MS) {
+    stopAzimuthMotor();
+    movementStatus = "AZ SETTLING";
+    return 0;
+  }
+  azSettling = false;
+  bool reversing = azDriveDirection != 0 && direction != azDriveDirection;
+  bool pulseFinished = azDriveDirection != 0 && error <= AZ_FINE_RANGE
+                       && now - azMotionChangedAt >= AZ_FINE_PULSE_MS;
+  if (reversing || pulseFinished) {
+    stopAzimuthMotor();
+    azDriveDirection = 0;
+    azSettling = true;
+    azMotionChangedAt = now;
+    movementStatus = "AZ SETTLING";
+    return 0;
+  }
+  if (azDriveDirection == 0) azMotionChangedAt = now;
+  azDriveDirection = direction;
+  int pwm = computeAzimuthPwm(error);
+  driveAzimuthMotor(pwm, direction);
+  movementStatus = isTracking ? "TRACKING" : "MOVING";
+  return pwm;
 }
 
 
@@ -999,6 +1069,8 @@ bool startPoint(float azimuth, float elevation) {
   apiElTarget = norm360(elevation);
   azPointActive = true;
   azPointComplete = false;
+  azDriveDirection = 0;
+  azSettling = false;
   elPointActive = true;
   elPointComplete = false;
   elPointDirection = 0;
@@ -1264,22 +1336,16 @@ void loop() {
     if (azDirection == 0) {
       stopAzimuthMotor();
       azPointActive = false;
+      azPointComplete = false;
+      azDriveDirection = 0;
+      azSettling = false;
       movementStatus = inAzimuthNoGoZone(azCurrent) ? "AZ POSITION BLOCKED" : "AZ TARGET BLOCKED";
       commandMessage = movementStatus;
     } else {
       azError = (azDirection > 0)
                 ? cwDistance(azCurrent, azTargetEncoder)
                 : cwDistance(azTargetEncoder, azCurrent);
-      azPwm = computeAzimuthPwm(azError);
-
-      if (azPwm == 0) {
-        stopAzimuthMotor();
-        if (!isTracking) finishAzPoint();
-        movementStatus = "IDLE";
-      } else {
-        driveAzimuthMotor(azPwm, azDirection);
-        movementStatus = isTracking ? "TRACKING" : "MOVING";
-      }
+      azPwm = controlAzimuth(azError, azDirection, now);
     }
   }
 

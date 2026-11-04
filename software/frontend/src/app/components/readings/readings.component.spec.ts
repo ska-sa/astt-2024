@@ -58,12 +58,13 @@ describe('ReadingsComponent', () => {
     component.readings = [
       sensorReading({ el_encoder_angle: 16.92, elevation_angle: 36.92 }),
       sensorReading({ el_encoder_angle: 0, elevation_angle: 0 }),
+      sensorReading({ el_encoder_angle: 275, elevation_angle: 275 }),
       sensorReading({ el_encoder_angle: null }), sensorReading()
     ];
     fixture.detectChanges();
     const values: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll('.el-encoder-reading');
     expect(Array.from(values).map(value => value.textContent?.trim()))
-      .toEqual(['36.92°', '0.00°', 'Not available', 'Not available']);
+      .toEqual(['36.92°', '0.00°', '-85.00°', 'Not available', 'Not available']);
   });
 
   it('refreshes readings, recovers after a failed poll and stops on destroy', fakeAsync(() => {

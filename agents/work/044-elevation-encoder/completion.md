@@ -63,3 +63,32 @@ local ASTT-055 patch consistently labels the value **Elevation Angle**, applies
 hardcoded `EL_ENCODER_OFFSET=0` through reading/target conversions, and enables
 bounded encoder-feedback Point tests. See ASTT-055 completion notes for software
 validation; physical stop measurements and qualification remain pending.
+
+## Temporary signed EL range — 2026-11-03
+
+- Point input now accepts EL −130° to +130°. Negative inputs wrap into the
+  existing 0–360° API domain (−30° → 330°); API payloads and firmware stay unchanged.
+- Gauge, Raw view, graph, reading history/table and command history use signed
+  EL consistently. Initial targets and successful hold display the same signed
+  angle; hold still sends the exact latest API value. Diagnostics retain raw `elEnc`.
+- EL gauge scale spans ±130° with zero right and positive angles upward. This
+  is a temporary UI scale, not measured travel or a new zero/reference.
+- Renamed the shared UI conversion helper to `signedAngle` for both axes.
+  AZ conversion, sensor readers, MPU levelling, offset and motor PWM are unchanged.
+- 65 focused ChromeHeadless CAM/Readings/Commands tests pass, including signed
+  endpoints, wrapped targets, invalid inputs, reading/history consistency,
+  one-time initialization, hold and no motion from view/polling updates.
+- Production build passes with existing CanvasJS/Bootstrap warnings. Isolated
+  desktop/mobile browser checks pass: negative EL inputs, simulated −35° → 325°
+  command, ±130°/wrap gauge bounds, unchanged inputs during polling, no overflow
+  or runtime errors. All API requests were mocked; no live motor commands.
+- Firmware/backend have no diff. No upload, service restart, commit or push.
+  Both physical stop values, permitted travel path and midpoint zero remain
+  pending under ASTT-044/042/094; hardware accuracy has not been verified.
+
+## First stop reported — 2026-11-03
+
+Operator measured the upper stop at raw 65.93°. Design range supplied: −16° to
++93°. ASTT-042 now sets provisional offset +27.07°; the predicted lower stop
+is raw 316.93° under a 1:1 scale assumption. Actual lower stop, scale and margins
+remain pending. No software EL travel bounds were added during this trial.

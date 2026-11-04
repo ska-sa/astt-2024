@@ -48,7 +48,7 @@ zero and full qualification remain open; automatic north-finding is deferred.
 - [x] **ASTT-097** Add Simple/Raw CAM reading views. — [Software verified](agents/work/097-cam-reading-views/completion.md)
 - [x] **ASTT-098** Add AZ/EL gauges with range shading and GPS. — [Software verified](agents/work/098-cam-angle-gauges/completion.md); EL travel limits remain ASTT-044
 
-- [x] **ASTT-099** Use signed AZ −130° to +130° and EL 0° to 90° in the UI, with one-time initial targets. — [Software verified](agents/work/099-ui-signed-pointing/completion.md); API/firmware unchanged
+- [x] **ASTT-099** Use signed UI Point angles with one-time initial targets. — [Software verified](agents/work/099-ui-signed-pointing/completion.md); API/firmware unchanged
 
 ### 2. Electronics and sensor integration — 10/10 complete
 
@@ -69,10 +69,10 @@ zero and full qualification remain open; automatic north-finding is deferred.
 - [x] **ASTT-022** Complete the AZ motor-driver and control wiring.
 - [x] **ASTT-023** Update MCU firmware to drive AZ movement.
 - [x] **ASTT-024** Verify closed-loop AZ movement and encoder feedback.
-- [ ] **ASTT-096** Replace the EL motor with a faster suitable motor and retest loaded movement/stopping. — [TODO HIGH](agents/work/096-faster-el-motor/prompt.md)
+- [ ] **ASTT-096** Replace the EL motor with a faster suitable motor and retest loaded movement/stopping. — [IN PROGRESS HIGH](agents/work/096-faster-el-motor/prompt.md)
 - [ ] **ASTT-094** Use signed midpoint-zero coordinates and reliable encoder-based two-axis Point control. — [TODAY CRITICAL](agents/work/094-encoder-mechanical-coordinates/prompt.md)
 - [ ] **ASTT-093** Remove network-induced AZ pauses, raise minimum PWM, and show live measured AZ/device status. — [Software verified; supervised motion pending](agents/work/093-continuous-az-motion/completion.md)
-- [ ] **ASTT-091** Add automatic recovery after external repositioning. — [LATER HIGH; deferred](agents/work/091-repositioning-recovery/prompt.md); completed Point must stay stopped for now
+- [ ] **ASTT-091** Add automatic recovery after external repositioning. — [LATER HIGH; deferred](agents/work/091-repositioning-recovery/prompt.md); whole-base/reference recovery deferred; AZ encoder hold trial is ASTT-045
 
 ### 5. Mechanical integration and enclosure — 2/9 complete
 
@@ -90,10 +90,10 @@ zero and full qualification remain open; automatic north-finding is deferred.
 
 - [x] **ASTT-040** Establish the true-north reference. — Sanele
 - [x] **ASTT-041** Establish the telescope GPS location. — Sanele
-- [ ] **ASTT-042** Set EL mechanical zero at the recorded permitted-travel midpoint. — [TODAY CRITICAL](agents/work/042-elevation-reference/prompt.md); not boot position or MPU zero
+- [ ] **ASTT-042** Set and verify the recorded EL encoder zero. — [TODAY CRITICAL](agents/work/042-elevation-reference/prompt.md); operator-selected raw 19.63°; accuracy/scale pending
 - [x] **ASTT-043** Establish the manual AZ encoder reference. — [Done for the manual demo](agents/work/043-azimuth-reference/completion.md); operator confirms 0° at midpoint, 90° right and 275° left. Quantitative accuracy/calibration remains ASTT-046/047/049
-- [ ] **ASTT-044** Read the newly available EL encoder and record limit-switch stop positions. — [IN PROGRESS CRITICAL](agents/work/044-elevation-encoder/prompt.md); GPIO35 reading accepted; stop measurements pending
-- [ ] **ASTT-045** Calibrate motor direction, PWM, deadband, and stopping for both axes. — Critical
+- [ ] **ASTT-044** Read the newly available EL encoder and record limit-switch stop positions. — [IN PROGRESS CRITICAL](agents/work/044-elevation-encoder/prompt.md); upper raw stop 65.93° recorded; lower stop and scale pending
+- [ ] **ASTT-045** Calibrate motor direction, PWM, deadband, and stopping for both axes. — Critical; operator confirms AZ 0.1° pulsed holding; EL tuning next
 - [ ] **ASTT-046** Qualify encoder accuracy and repeatability. — High
 - [ ] **ASTT-047** Qualify magnetometer and heading measurements. — [LATER HIGH](agents/work/047-qualify-magnetometer/prompt.md); automatic referencing deferred
 - [ ] **ASTT-048** Qualify the GPS subsystem. — Medium
@@ -147,19 +147,22 @@ zero and full qualification remain open; automatic north-finding is deferred.
 **Milestone: reliable AZ + EL movement using encoder feedback, not automatic
 north-finding or absolute pointing accuracy.** EL reading/UI is accepted and pushed
 as `4da6e3c`; the operator confirms EL movement works in both directions. The
-movement uses the confirmed motor direction. Replace the slow EL motor under ASTT-096.
+movement uses the confirmed motor direction. The operator now reports faster EL motion; replacement-motor retesting remains ASTT-096.
 
 1. Operator confirms AZ still works on restored `master` (`2ca62bc`). Preserve its verified
    raw limits `137.8° → 360°/0° → 37.8°`, direction, pins and communication.
 2. ASTT-055 basic EL Point movement and direction are accepted. ASTT-044/051:
    record both physical stop readings and qualify switch/E-stop behavior. Physical
-   switches open motor power per the operator. `EL_ENCODER_OFFSET=0` is still the
-   initial reference; endpoints and scale must be measured.
-3. ASTT-042/094: calculate each zero halfway along its permitted encoder arc,
-   including wraparound. Store the recorded midpoint; never use boot position.
-   Use signed mechanical angles on either side. AZ midpoint is `267.8°`, giving
+   switches open motor power per the operator. EL zero is now raw 19.63° with
+   `EL_ENCODER_OFFSET=-19.63`, selected from the previous UI 46.7° reading.
+   UI range is −15° to +92°; raw endpoints and scale still need qualification.
+3. ASTT-042/094: retain recorded references, never use boot position. AZ uses
+   its travel midpoint; EL now uses the operator-selected reference.
+   Use signed angles on either side. AZ midpoint is `267.8°`, giving
    nominal `−130°…+130°` before stopping margins; old wrapped `275°` is `−85°`.
-   A measured 90° EL travel would give approximately ±45°, but EL is not yet measured.
+   Earlier upper raw 65.93° now displays EL +46.3°, not the requested UI +92°
+   bound. Verify scale/gearing and stops before treating the UI range as travel.
+   No new firmware EL travel bounds are enforced.
 4. ASTT-049/050: qualify stopping, limits, feedback loss
    and E-stop on each axis separately. Then ASTT-094/059/078: command both axes,
    stop reliably and return to mechanical `(0°, 0°)`. Update command validation,

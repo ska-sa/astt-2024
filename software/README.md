@@ -96,24 +96,26 @@ is rejected if subtracting the offset places it inside the blocked raw arc.
 ### CAM reading views
 
 The sensor panel opens in **Simple**: a signed AZ gauge (0° up, −130° to +130°),
-an EL quadrant (0° right at the horizon, 90° up), and GPS below. Larger measured
+an EL arc (−15° to +92°, 0° right, positive angles upward), and GPS below. Larger measured
 values follow the arrow tips just outside each arc, on white backgrounds. **Raw** shows all existing sensor fields and Show more diagnostics.
-Both views use the same live reading; switching never sends a command.
+Both views use the same live reading; switching never sends a command. Both
+gauges use solid triangular pointers.
 
 The AZ gauge shows allowed travel in gray and unused travel in white, using
 the current encoder endpoints plus the published offset. The arc stays fixed when only AZ moves. Readings already
 contain their reference offset and are not shifted again. EL travel limits are
-not yet available: its quadrant is a display scale, not a permitted-motion range.
-EL values outside 0–90° remain visible numerically with no clamped needle.
+not yet available: its arc is a temporary display scale, not a measured travel range.
+Actual EL readings remain visible without clamping.
 Missing feedback shows Not available. Reference and hardware qualification remain
 separate from ASTT-097/098's UI work.
 
 ### UI Point angles (ASTT-099)
 
-Manual Point accepts **AZ −130° to +130°** and **EL 0° to 90°**. Only the UI
-changes representation: AZ −90° sends API 270°, and API 275° displays −85°.
+Manual Point accepts **AZ −130° to +130°** and **EL −15° to +92°**, as requested
+for operator reference tests (ASTT-042/044, 2026-11-03). Only the UI changes
+representation: −90° on either axis sends API 270°, and API 275° displays −85°.
 CAM Simple/Raw views, its history chart, the Readings table and command history
-all show signed AZ. Existing encoder limits/offsets, API angles and firmware
+all show signed angles. Existing encoder limits/offsets, API angles and firmware
 remain unchanged; readings already include the reference offset.
 
 Targets start at `(0, 0)` and initialize once from valid, in-range readings on
@@ -126,8 +128,12 @@ removed from the UI; serial diagnostics remain verbatim in Show more.
 ### Remote reading diagnostics
 
 The firmware sends `elevation_angle = norm360(el_encoder_angle + EL_ENCODER_OFFSET)`.
-The hardcoded offset is initially zero; raw `el_encoder_angle: number | null`
-remains available for feedback diagnostics and recording stops. The nullable
+The fixed offset is −19.63°: the operator selected the previous UI 46.7°
+(with +27.07° offset) as zero, corresponding to raw encoder 19.63°.
+Firmware applies this once; the UI only converts wrapped degrees to signed
+values. The requested UI range is not yet confirmed physical travel: earlier
+upper raw 65.93° now reads 46.3°, so scale/stop validation remains pending.
+Raw `el_encoder_angle: number | null` remains available for feedback diagnostics and recording stops. The nullable
 column migration preserves existing records and every reading route includes it.
 For the first reading-only firmware, a valid `elEnc=... EL_ENC=OK` log supplies
 missing encoder data. Its `EL_MPU=` marker identifies the older zero-offset frame,
@@ -142,8 +148,9 @@ Reading refreshes never submit motion commands. The history graph retains its
 Load graph/date/sampling controls. Magnetic fields remain Tesla in the API.
 
 The API/firmware still accept EL angles from 0 to 360 degrees for encoder tests;
-the manual UI Point form now limits EL to 0–90°. Neither is a measured travel range. EL Point continues
-until it reaches the encoder target within 1° tolerance; the firmware stops on
+the manual UI Point form accepts signed EL −15° to +92°. Neither
+is a measured travel range. EL Point uses PWM 128–255 with the existing 30° ramp and stops within 0.01°
+or on target crossing; the firmware stops on
 arrival, lost/stale feedback, E-stop or ten seconds without command communication. Physical switches cut motor power while stops are being measured.
 EL celestial tracking is disabled for this phase; signed midpoint coordinates
 and software travel protection follow the recorded endpoints. The hold button
@@ -186,8 +193,13 @@ Online/Offline label is added. These read-only updates never issue commands.
 HTTP now runs in an ESP32 worker with copied snapshots so its 2 s/5 s requests
 do not intentionally interrupt motor PWM. Command IDs, E-stop, encoder limits
 and the 10 s communication timeout remain authoritative; stale replies cannot
-resume stopped commands. AZ minimum PWM is 210; EL minimum is 255. Both maxima are 255. Physical
-smoothness and stopping still need supervised testing after operator upload.
+resume cancelled commands. AZ uses PWM 150–255 and EL 128–255. AZ holds its
+current Point target with 0.1° tolerance and short corrections near arrival;
+EL still stops on arrival/crossing. Physical accuracy needs supervised testing.
+CAM rounds AZ/EL Point fields to at most two decimal places on initialization,
+leaving the field, and submission. A hold command preserves the exact latest
+reading in its payload; only its displayed input values are rounded. Live and
+historical telemetry are not rounded or overwritten by this input formatting.
 After flashing/rebooting, manually prepare alignment, then submit a new command:
 the firmware deliberately ignores commands saved before startup. The existing
 UI popup confirms command submission, not arrival. Firmware `AZ POINT COMPLETE`
@@ -231,7 +243,7 @@ emergencies; its qualification remains ASTT-051. No new API endpoint is added.
 | ASTT-043 | Manual reference implemented; independent accuracy pending | Fixed midpoint north, unchanged raw limits, encoder-derived AZ and separate magnetic diagnostics; no new controls. |
 | ASTT-092 | Software verified | Optional reading diagnostics, preserved legacy rows, actual sensor health, and escaped Show more in reading views. |
 | ASTT-093 | Software verified; powered checks pending | HTTP worker keeps feedback active during requests, motor PWM no longer pauses for HTTP, and device rows use latest-reading health/freshness. |
-| ASTT-099 | Software verified | Signed AZ display/input, EL 0–90° input, one-time initial targets and minimal control-panel text; API/firmware unchanged. |
+| ASTT-099 | Software verified | Signed AZ/EL display/input (EL −15° to +92° for ASTT-042/044), one-time initial targets and minimal control-panel text; API/firmware unchanged. |
 
 ASTT-055 basic encoder-feedback EL Point movement is complete per operator
 confirmation in both directions. Measured limits, zero and full qualification

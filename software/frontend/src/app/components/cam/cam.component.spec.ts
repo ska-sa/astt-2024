@@ -163,19 +163,36 @@ describe('CamComponent', () => {
       expect(component.azimuthAllowedArc).toBeNull();
     });
 
-    it('orients EL from the right horizon to vertical and keeps off-scale values without clamping', () => {
+    it('shows signed EL around the right-facing zero without clamping readings or sending commands', () => {
       fixture.detectChanges();
-      for (const angle of [0, 45, 90]) {
-        component.reading = sensorReading({ elevation_angle: angle });
+      for (const [apiAngle, angle] of [[0, 0], [45, 45], [90, 90], [130, 130], [230, -130], [270, -90], [359.5, -0.5], [360, 0], [150, 150]]) {
+        component.reading = sensorReading({ elevation_angle: apiAngle });
         fixture.detectChanges();
         expect(fixture.nativeElement.querySelector('.elevation-needle').getAttribute('transform'))
-          .toBe(`rotate(${-angle} 56 202)`);
+          .toBe(`rotate(${-angle} 120 120)`);
+        expect(fixture.nativeElement.querySelector('.el-encoder-reading').textContent).toBe(`${angle.toFixed(2)}°`);
+        expect(component.reading.elevation_angle).toBe(apiAngle);
       }
-      component.reading = sensorReading({ elevation_angle: 275, el_encoder_angle: 255 });
-      fixture.detectChanges();
-      expect(fixture.nativeElement.querySelector('.el-encoder-reading').textContent).toBe('275.00°');
-      expect(fixture.nativeElement.querySelector('.elevation-needle')).toBeNull();
       expect(commandService.postCommand).not.toHaveBeenCalled();
+    });
+
+    it('draws triangular pointers and the EL range from -15 to 92', () => {
+      component.reading = sensorReading({ elevation_angle: 345 });
+      fixture.detectChanges();
+      const needles = fixture.nativeElement.querySelectorAll('.gauge-needle');
+      for (const needle of needles) {
+        expect(needle.querySelector('line')).toBeNull();
+        expect(needle.querySelector('path').getAttribute('d')).toContain('Z');
+      }
+      const gauge: SVGElement = fixture.nativeElement.querySelector('.elevation-gauge');
+      expect(gauge.textContent).toContain('92°');
+      expect(gauge.textContent).toContain('−15°');
+      const arc = gauge.querySelector('.gauge-track')!.getAttribute('d')!.match(/-?\d+(?:\.\d+)?/g)!.map(Number);
+      expect(arc[0]).toBeCloseTo(120 + 82 * Math.cos(-15 * Math.PI / 180), 1);
+      expect(arc[1]).toBeCloseTo(120 - 82 * Math.sin(-15 * Math.PI / 180), 1);
+      expect(arc.slice(2, 7)).toEqual([82, 82, 0, 0, 0]);
+      expect(arc[7]).toBeCloseTo(120 + 82 * Math.cos(92 * Math.PI / 180), 1);
+      expect(arc[8]).toBeCloseTo(120 - 82 * Math.sin(92 * Math.PI / 180), 1);
     });
 
     it('does not invent a position for absent or invalid feedback and preserves offline styling', () => {
@@ -238,7 +255,7 @@ describe('CamComponent', () => {
       fixture.detectChanges();
       const inputs: NodeListOf<HTMLInputElement> = fixture.nativeElement.querySelectorAll('input[type="number"]');
       expect(inputs[0].min).toBe('-130'); expect(inputs[0].max).toBe('130');
-      expect(inputs[1].min).toBe('0'); expect(inputs[1].max).toBe('90');
+      expect(inputs[1].min).toBe('-15'); expect(inputs[1].max).toBe('92');
       inputs[0].value = '-20'; inputs[0].dispatchEvent(new Event('input'));
       tick(1000);
       component.track(); component.point();
@@ -273,10 +290,10 @@ describe('CamComponent', () => {
 
     it('leaves defaults for missing or out-of-input-range initial positions without clamping actual readings', () => {
       spyOn(component, 'startPollingReadings');
-      readingService.getLatestReading.and.returnValue(of(sensorReading({ azimuth_angle: 180, elevation_angle: 275 })));
+      readingService.getLatestReading.and.returnValue(of(sensorReading({ azimuth_angle: 180, elevation_angle: 180 })));
       fixture.detectChanges();
       expect(component.azimuth_angle).toBe(0); expect(component.elevation_angle).toBe(0);
-      expect(component.azimuthReading).toBe(180); expect(component.elevationReading).toBe(275);
+      expect(component.azimuthReading).toBe(180); expect(component.elevationReading).toBe(180);
     });
   });
 
@@ -300,7 +317,7 @@ describe('CamComponent', () => {
       sensorReading({ id: 104, el_encoder_angle: undefined })
     ]);
     const series = component.chartOptions.data.find(item => item.name === 'Elevation Angle')!;
-    expect(series.dataPoints.map(point => point.y)).toEqual([359.5, 0, null, null]);
+    expect(series.dataPoints.map(point => point.y)).toEqual([-0.5, 0, null, null]);
     expect(series.connectNullData).toBeFalse();
     expect(component.chartOptions.data.map(item => item.name)).toEqual(['Azimuth Angle', 'Elevation Angle']);
     expect(commandService.postCommand).not.toHaveBeenCalled();
@@ -491,6 +508,45 @@ describe('CamComponent', () => {
     expect(commandService.postCommand).toHaveBeenCalledTimes(6);
   });
 
+  it('rounds initial Point fields to two decimals without changing telemetry or later edits', () => {
+    component.reading = sensorReading({ azimuth_angle: 280.123456, elevation_angle: 350.123456 });
+    component['initializePointInputs']();
+    expect(component.azimuth_angle).toBe(-79.88);
+    expect(component.elevation_angle).toBe(-9.88);
+    expect(component.reading.azimuth_angle).toBe(280.123456);
+    expect(component.reading.elevation_angle).toBe(350.123456);
+    component.azimuth_angle = 12.34;
+    component.reading = sensorReading({ azimuth_angle: 10, elevation_angle: 20 });
+    component['initializePointInputs']();
+    expect(component.azimuth_angle).toBe(12.34);
+    expect(commandService.postCommand).not.toHaveBeenCalled();
+  });
+
+  it('rounds edited targets on blur and before sending, preserving signed conversion', () => {
+    spyOn(component, 'loadReading'); spyOn(component, 'startPollingReadings');
+    spyOn(component, 'getSources'); spyOn(component, 'loadGraph');
+    component.azimuth_angle = -79.876544;
+    component.elevation_angle = 12.3456;
+    fixture.detectChanges();
+    const inputs: NodeListOf<HTMLInputElement> = fixture.nativeElement.querySelectorAll('input[type="number"]');
+    expect(inputs.length).toBe(2);
+    inputs.forEach(input => {
+      expect(input.step).toBe('0.01');
+      input.dispatchEvent(new Event('blur'));
+    });
+    expect(component.azimuth_angle).toBe(-79.88);
+    expect(component.elevation_angle).toBe(12.35);
+    expect(commandService.postCommand).not.toHaveBeenCalled();
+    component.azimuth_angle = -79.876544;
+    component.elevation_angle = 12.3456;
+    component.startPointing();
+    expect(component.azimuth_angle).toBe(-79.88);
+    expect(component.elevation_angle).toBe(12.35);
+    const target = commandService.postCommand.calls.mostRecent().args[0].point!;
+    expect(target.target_az_angle).toBeCloseTo(280.12, 8);
+    expect(target.target_el_angle).toBe(12.35);
+  });
+
   it('still checks the raw encoder range after converting a signed UI target', () => {
     telescopeService.getTelescope.and.returnValue(of(telescopeWithMetadata({
       ...metadata, az_encoder_min: 137.8, az_encoder_max: 209.7, az_encoder_offset: 100
@@ -505,20 +561,48 @@ describe('CamComponent', () => {
     expect(component.azimuth_angle).toBe(10);
   });
 
-  it('accepts EL endpoints and rejects values outside 0 to 90 without changing them', () => {
-    for (const angle of [0, 45, 90]) {
+  it('accepts signed EL endpoints, wraps API targets, and rejects out-of-range inputs', () => {
+    for (const [angle, apiAngle] of [[-15, 345], [-10, 350], [-0.5, 359.5], [0, 0], [90, 90], [92, 92]]) {
       component.elevation_angle = angle;
       component.startPointing();
       expect(component.commandError).toBe('');
-      expect(commandService.postCommand.calls.mostRecent().args[0].point?.target_el_angle).toBe(angle);
+      expect(commandService.postCommand.calls.mostRecent().args[0].point?.target_el_angle).toBe(apiAngle);
+      expect(component.elevation_angle).toBe(angle);
     }
-    for (const angle of [-1, 91, 360, NaN, Infinity]) {
+    for (const angle of [-15.01, 92.01, 360, NaN, Infinity]) {
       component.elevation_angle = angle;
       component.startPointing();
-      expect(component.commandError).toContain('0° and 90°');
+      expect(component.commandError).toContain('-15° and 92°');
       expect(component.elevation_angle).toEqual(angle);
     }
-    expect(commandService.postCommand).toHaveBeenCalledTimes(3);
+    expect(commandService.postCommand).toHaveBeenCalledTimes(6);
+  });
+
+  it('initializes negative EL once from wrapped readings and leaves later edits alone', () => {
+    component.reading = sensorReading({ elevation_angle: 350 });
+    component['initializePointInputs']();
+    expect(component.elevation_angle).toBe(-10);
+    component.elevation_angle = -12;
+    component.reading = sensorReading({ elevation_angle: 340 });
+    component['initializePointInputs']();
+    expect(component.elevation_angle).toBe(-12);
+    expect(commandService.postCommand).not.toHaveBeenCalled();
+  });
+
+  it('uses signed EL in Raw, history and the graph without changing encoder diagnostics', () => {
+    spyOn(component, 'loadReading'); spyOn(component, 'startPollingReadings');
+    spyOn(component, 'getSources'); spyOn(component, 'loadGraph');
+    const readings = [230, 330, 0, 130, 360].map(elevation_angle => sensorReading({ elevation_angle, serial_log: 'elEnc=330' }));
+    component.reading = readings[1]; component.readingsView = 'raw';
+    component.historicalReadings = readings;
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.sensor-readings').textContent).toContain('Elevation Angle: -30.00°');
+    expect(fixture.nativeElement.querySelector('.sensor-readings pre').textContent).toBe('elEnc=330');
+    expect(fixture.nativeElement.querySelector('.history-diagnostics').textContent).toContain('Elevation Angle: -30.00°');
+    component['updateChart'](readings);
+    expect(component.chartOptions.data[1].dataPoints.map(point => point.y)).toEqual([-130, -30, 0, 130, 0]);
+    expect(readings.map(reading => reading.elevation_angle)).toEqual([230, 330, 0, 130, 360]);
+    expect(commandService.postCommand).not.toHaveBeenCalled();
   });
 
   it('rejects missing calibration metadata before posting', () => {
@@ -1021,8 +1105,8 @@ describe('CamComponent', () => {
           point: { target_az_angle: 280.123456, target_el_angle: 312.75 },
           track: null
         });
-        expect(component.azimuth_angle).toBeCloseTo(-79.876544, 6);
-        expect(component.elevation_angle).toBe(312.75);
+        expect(component.azimuth_angle).toBe(-79.88);
+        expect(component.elevation_angle).toBe(-47.25);
         expect(component.isPointing).toBeTrue();
         expect(component.isStopping).toBeFalse();
         expect(component.showCommandMessage).toHaveBeenCalledOnceWith('Hold-position command sent.');

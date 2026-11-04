@@ -57,3 +57,12 @@ position is zero.
 
 Integrated firmware, host tests, wiring and motor-calibration notes. Start with
 unpowered/manual readings, then separately approved supervised stop checks.
+
+## Approved temporary EL command range — 2026-11-03
+
+Operator requests EL input from −130° to +130° to measure both physical
+power-cutting limit-switch stops. Use the existing UI wrapping convention from
+AZ and show matching signed EL readings/history; preserve API/firmware 0–360°,
+full EL PWM, sensor readers and MPU levelling. Keep the existing offset until
+raw stops and permitted direction/wrap are reported, then calculate a recorded
+midpoint zero under ASTT-042/094. No automatic sweep or invented endpoints.

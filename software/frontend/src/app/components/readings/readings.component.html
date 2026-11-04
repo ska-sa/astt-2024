@@ -32,8 +32,8 @@
         <td> {{ getTelescopeNameById(reading.telescope_id) }}</td>
         <td [ngClass]="getHealthStatusClass(reading.health_status)">{{ reading.health_status || 'Unknown' }}</td>
         <td>{{ reading.movement_status || 'Unknown' }}</td>
-        <td class="azimuth-reading">{{ signedAzimuth(reading.azimuth_angle) !== null ? (signedAzimuth(reading.azimuth_angle) | number:'1.2-2') + '°' : 'Not available' }}</td>
-        <td class="el-encoder-reading">{{ reading.el_encoder_angle != null ? (reading.elevation_angle | number:'1.2-2') + '°' : 'Not available' }}</td>
+        <td class="azimuth-reading">{{ signedAngle(reading.azimuth_angle) !== null ? (signedAngle(reading.azimuth_angle) | number:'1.2-2') + '°' : 'Not available' }}</td>
+        <td class="el-encoder-reading">{{ reading.el_encoder_angle != null && signedAngle(reading.elevation_angle) !== null ? (signedAngle(reading.elevation_angle) | number:'1.2-2') + '°' : 'Not available' }}</td>
         <td>{{ reading.created_at }}</td>
         <td>
           <details>

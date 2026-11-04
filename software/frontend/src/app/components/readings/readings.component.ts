@@ -1,4 +1,4 @@
-import { signedAzimuth } from '../../utils/angles';
+import { signedAngle } from '../../utils/angles';
 import { Component, OnDestroy, OnInit } from '@angular/core';
 import { catchError, EMPTY, exhaustMap, interval, Subscription } from 'rxjs';
 import { Reading } from '../../interfaces/reading';
@@ -17,7 +17,7 @@ import { Telescope } from '../../interfaces/telescope';
 })
 export class ReadingsComponent implements OnInit, OnDestroy {
   private pollSubscription: Subscription | null = null;
-  readonly signedAzimuth: typeof signedAzimuth = signedAzimuth;
+  readonly signedAngle: typeof signedAngle = signedAngle;
   readings: Reading[] = [];
   telescopes: Telescope[] = [];
   isLoading: boolean = false;

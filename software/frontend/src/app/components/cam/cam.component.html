@@ -45,8 +45,7 @@
                   <text class="gauge-label" x="225" y="201">+130°</text>
                   <text class="gauge-label" x="16" y="125">−90°</text>
                   <g *ngIf="azimuthReading !== null" class="gauge-needle azimuth-needle" [attr.transform]="'rotate(' + azimuthReading + ' 120 120)'">
-                    <line x1="120" y1="120" x2="120" y2="55" />
-                    <path d="M 120 39 L 114 58 L 126 58 Z" />
+                    <path d="M 120 39 L 112 120 L 128 120 Z" />
                   </g>
                   <circle class="gauge-pivot" cx="120" cy="120" r="5" />
                   <g class="gauge-value-label" [attr.transform]="'translate(' + azimuthLabelPosition.x + ' ' + azimuthLabelPosition.y + ')'">
@@ -57,18 +56,18 @@
               </figure>
               <figure class="col-12 col-sm-6 mb-0 text-center">
                 <figcaption class="fw-semibold">Elevation Angle</figcaption>
-                <svg class="angle-gauge elevation-gauge" viewBox="-40 -20 420 300" role="img" [attr.aria-label]="'Elevation Angle: ' + (elevationReading === null ? 'Not available' : elevationReading + ' degrees')">
-                  <path class="gauge-track" d="M 204 202 A 148 148 0 0 0 56 54" />
-                  <line class="gauge-horizon" x1="36" y1="202" x2="216" y2="202" />
-                  <text class="gauge-label" x="56" y="35">90°</text>
-                  <text class="gauge-label" x="211" y="228">0°</text>
-                  <text class="gauge-label" x="122" y="228">Horizon</text>
-                  <!-- EL travel limits are not recorded yet; never clamp an off-scale reading to 0/90. -->
-                  <g *ngIf="elevationReading !== null && elevationReading <= 90" class="gauge-needle elevation-needle" [attr.transform]="'rotate(' + -elevationReading + ' 56 202)'">
-                    <line x1="56" y1="202" x2="187" y2="202" />
-                    <path d="M 204 202 L 185 196 L 185 208 Z" />
+                <svg class="angle-gauge elevation-gauge" viewBox="-90 -20 420 300" role="img" [attr.aria-label]="'Elevation Angle: ' + (elevationReading === null ? 'Not available' : elevationReading + ' degrees')">
+                  <path class="gauge-track" d="M 199.21 141.22 A 82 82 0 0 0 117.14 38.05" />
+                  <line class="gauge-horizon" x1="25" y1="120" x2="215" y2="120" />
+                  <text class="gauge-label" x="116" y="20">92°</text>
+                  <text class="gauge-label" x="224" y="158">−15°</text>
+                  <text class="gauge-label" x="224" y="125">0°</text>
+                  <text class="gauge-label" x="120" y="145">Horizon</text>
+                  <!-- Operator-supplied UI range; hardware travel limits remain separate. -->
+                  <g *ngIf="elevationReading !== null" class="gauge-needle elevation-needle" [attr.transform]="'rotate(' + -elevationReading + ' 120 120)'">
+                    <path d="M 201 120 L 120 112 L 120 128 Z" />
                   </g>
-                  <circle class="gauge-pivot" cx="56" cy="202" r="5" />
+                  <circle class="gauge-pivot" cx="120" cy="120" r="5" />
                   <g class="gauge-value-label" [attr.transform]="'translate(' + elevationLabelPosition.x + ' ' + elevationLabelPosition.y + ')'">
                     <rect x="-6" width="112" height="32" rx="5" />
                     <text class="gauge-value el-encoder-reading" x="50" y="22" [class.gauge-unavailable]="elevationReading === null">{{ elevationReading !== null ? (elevationReading | number:'1.2-2') + '°' : 'Not available' }}</text>
@@ -109,7 +108,7 @@
                 <strong>Position</strong>
                 <div class="ps-2">
                   Azimuth Angle: {{ azimuthReading !== null ? (azimuthReading | number:'1.2-2') + '°' : 'Not available' }}<br>
-                  <span class="el-encoder-reading">Elevation Angle: {{ reading?.el_encoder_angle != null ? (reading?.elevation_angle | number:'1.2-2') + '°' : 'Not available' }}</span>
+                  <span class="el-encoder-reading">Elevation Angle: {{ elevationReading !== null ? (elevationReading | number:'1.2-2') + '°' : 'Not available' }}</span>
                 </div>
                 <strong>Gyroscope</strong>
                 <div class="ps-2">
@@ -158,24 +157,26 @@
                   class="form-control"
                   type="number"
                   [(ngModel)]="azimuth_angle"
+                  (blur)="roundPointInput('azimuth_angle')"
                   (ngModelChange)="markPointInputsEdited()"
                   min="-130"
                   max="130"
-                  step="any"
+                  step="0.01"
                   placeholder="−130 to +130"
                 >
               </div>
               <div class="col">
-                <label class="form-label">Elevation Angle (0° to 90°)</label>
+                <label class="form-label">Elevation Angle (−15° to 92°)</label>
                 <input
                   class="form-control"
                   type="number"
                   [(ngModel)]="elevation_angle"
+                  (blur)="roundPointInput('elevation_angle')"
                   (ngModelChange)="markPointInputsEdited()"
-                  min="0"
-                  max="90"
-                  step="any"
-                  placeholder="0 to 90"
+                  min="-15"
+                  max="92"
+                  step="0.01"
+                  placeholder="−15 to 92"
                 >
               </div>
             </div>
@@ -292,7 +293,7 @@
             <summary class="text-primary">Show more: reading diagnostics</summary>
             <div *ngFor="let reading of historicalReadings" class="border-bottom py-2">
               <div class="small">Reading #{{ reading.id }} — {{ reading.created_at | date:'medium' }} — <span [ngClass]="getHealthStatusClass(reading.health_status)">{{ reading.health_status }}</span></div>
-              <div class="small">Elevation Angle: {{ reading.el_encoder_angle != null ? (reading.elevation_angle | number:'1.2-2') + '°' : 'Not available' }}</div>
+              <div class="small">Elevation Angle: {{ reading.el_encoder_angle != null && signedAngle(reading.elevation_angle) !== null ? (signedAngle(reading.elevation_angle) | number:'1.2-2') + '°' : 'Not available' }}</div>
               <pre class="small mb-0" style="white-space: pre-wrap; overflow-wrap: anywhere;">{{ reading.serial_log || 'No diagnostics recorded for this reading.' }}</pre>
             </div>
           </details>

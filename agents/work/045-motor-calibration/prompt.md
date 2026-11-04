@@ -64,3 +64,19 @@ After confirming master sensor readings are reliable, the operator requests EL
 minimum/maximum PWM together at 255 and the earlier 0.01° tolerance. Keep AZ,
 sensor code and timing unchanged. Stop on EL target crossing to avoid chasing
 a sample that skipped the tiny tolerance. No automatic hold or other refactor.
+
+## Faster EL motor trial — 2026-11-03
+
+Operator reports EL now moves faster and requests EL minimum PWM to match
+current AZ minimum (210). Change EL minimum only; retain maximum 255, existing
+ramp, tolerance, reference, sensor readers and all AZ settings.
+
+## Authorized AZ-only follow-up — 2026-11-04
+
+Keep the operator's AZ minimum/maximum 140/255 and 0.1° tolerance; preserve EL
+settings (currently 128/255, 0.01°) and all sensor sampling. Improve AZ arrival
+and continued encoder-based holding with small near-target corrections and
+settling before reversal. Add speed/error to existing Serial/API diagnostics.
+Round CAM target inputs to two decimals. No automatic power boost in this trial;
+use the logs for minimum-power tuning. No flash, powered commands, commit or push.
+Operator tests must confirm repeatable stopping before further tolerance changes.

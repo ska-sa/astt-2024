@@ -9,7 +9,7 @@
 The user wants later recovery when an external disturbance changes the antenna's
 position. Encoder movement, movement of the whole base, and coupling slip are
 different cases; the measured reference must remain trustworthy before recovery.
-A completed Point must stay stopped in the current implementation.
+The 2026-11-04 ASTT-045 trial permits AZ encoder-based holding of an active Point. Whole-base/reference recovery and EL automatic recovery remain deferred.
 
 ## Goal
 
@@ -29,7 +29,7 @@ position after a detected disturbance.
 
 ## Out of scope
 
-- Restarting a completed Point as part of current AZ calibration work.
+- Whole-base/absolute-reference recovery as part of the AZ encoder-hold trial.
 - Guessing disturbance thresholds, overriding limits, or forcing powered motors.
 
 ## Decisions and questions
@@ -57,3 +57,11 @@ position after a detected disturbance.
 Start with simulated disturbances and sensor faults. Plan operator-run physical
 checks only after reference, movement, and E-stop qualification; do not force
 the assembly against powered motors.
+
+## Scope clarification — 2026-11-04
+
+The operator authorized continued AZ corrections to the same target under
+ASTT-045. This covers encoder-visible drift while the command is still active;
+it cannot observe base movement or coupling slip. E-stop, timeout, feedback loss
+and blocked travel still cancel AZ and need a fresh command. This ticket remains
+open for the broader reference/detection work.

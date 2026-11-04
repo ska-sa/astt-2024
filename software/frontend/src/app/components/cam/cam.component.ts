@@ -16,7 +16,7 @@ import { CanvasJSAngularChartsModule } from '@canvasjs/angular-charts';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Telescope, TelescopeMetadata } from '../../interfaces/telescope';
 import { TelescopeService } from '../../services/telescope.service';
-import { signedAzimuth } from '../../utils/angles';
+import { signedAngle } from '../../utils/angles';
 
 interface ChartDataPoint {
   x: Date;
@@ -117,15 +117,16 @@ export class CamComponent {
     });
   }
 
+  readonly signedAngle: typeof signedAngle = signedAngle;
+
   get azimuthReading(): number | null {
-    return signedAzimuth(this.reading?.azimuth_angle);
+    return signedAngle(this.reading?.azimuth_angle);
   }
 
   get elevationReading(): number | null {
     const angle = this.reading?.elevation_angle;
     const encoder = this.reading?.el_encoder_angle;
-    return encoder != null && Number.isFinite(encoder)
-      && angle != null && Number.isFinite(angle) && angle >= 0 && angle <= 360 ? angle : null;
+    return encoder != null && Number.isFinite(encoder) ? signedAngle(angle) : null;
   }
 
   get azimuthLabelPosition(): { x: number; y: number } {
@@ -139,21 +140,21 @@ export class CamComponent {
   }
 
   get elevationLabelPosition(): { x: number; y: number } {
-    if (this.elevationReading === null || this.elevationReading > 90) return { x: 95, y: 114 };
+    if (this.elevationReading === null) return { x: 70, y: 104 };
     const angle = this.elevationReading * Math.PI / 180;
     const horizontal = Math.cos(angle);
     return {
-      x: 56 + 170 * horizontal - (horizontal > 0.25 ? 0 : 50),
-      y: 202 - 170 * Math.sin(angle) - 16
+      x: 120 + 104 * horizontal - (horizontal > 0.25 ? 0 : horizontal < -0.25 ? 100 : 50),
+      y: 120 - 104 * Math.sin(angle) - 16
     };
   }
 
   get azimuthAllowedArc(): string | null {
     if (!this.telescopeMetadata) return null;
     const { az_encoder_min, az_encoder_max, az_encoder_offset } = this.telescopeMetadata;
-    const span = this.normalizeAzimuth(az_encoder_max - az_encoder_min);
+    const span = this.normalizeAngle(az_encoder_max - az_encoder_min);
     if (span === 0) return null;
-    const start = this.normalizeAzimuth(az_encoder_min + az_encoder_offset) * Math.PI / 180;
+    const start = this.normalizeAngle(az_encoder_min + az_encoder_offset) * Math.PI / 180;
     const end = start + span * Math.PI / 180;
     // SVG angles start at the top and increase clockwise, matching the AZ display.
     return `M ${120 + 82 * Math.sin(start)} ${120 - 82 * Math.cos(start)}`
@@ -210,8 +211,8 @@ export class CamComponent {
         this.telescopeMetadata = metadata;
         this.loadedTelescopeId = telescopeId;
         this.calibrationMessage = '';
-        const minimum: number = signedAzimuth(this.normalizeAzimuth(metadata.az_encoder_min + metadata.az_encoder_offset))!;
-        const maximum: number = signedAzimuth(this.normalizeAzimuth(metadata.az_encoder_max + metadata.az_encoder_offset))!;
+        const minimum: number = signedAngle(this.normalizeAngle(metadata.az_encoder_min + metadata.az_encoder_offset))!;
+        const maximum: number = signedAngle(this.normalizeAngle(metadata.az_encoder_max + metadata.az_encoder_offset))!;
         this.azimuthRange = `${+minimum.toFixed(2)}° to ${+maximum.toFixed(2)}°${minimum > maximum ? ' through ±180°' : ''}`;
         return this.isAzimuthReady();
       }),
@@ -385,8 +386,8 @@ export class CamComponent {
       }
 
       const timestamp: Date = new Date(readingTime);
-      azimuthPoints.push({ x: timestamp, y: signedAzimuth(reading.azimuth_angle) });
-      encoderPoints.push({ x: timestamp, y: reading.el_encoder_angle != null ? reading.elevation_angle : null });
+      azimuthPoints.push({ x: timestamp, y: signedAngle(reading.azimuth_angle) });
+      encoderPoints.push({ x: timestamp, y: reading.el_encoder_angle != null ? signedAngle(reading.elevation_angle) : null });
     }
 
     this.chartOptions = this.createChartOptions(azimuthPoints, encoderPoints);
@@ -466,13 +467,17 @@ export class CamComponent {
     this.pointInputsInitialized = true;
   }
 
+  roundPointInput(axis: 'azimuth_angle' | 'elevation_angle'): void {
+    if (Number.isFinite(this[axis])) this[axis] = Number(this[axis].toFixed(2));
+  }
+
   private initializePointInputs(): void {
     if (this.pointInputsInitialized || this.reading?.telescope_id !== this.telescopeId) return;
     this.pointInputsInitialized = true;
     const azimuth = this.azimuthReading;
     const elevation = this.elevationReading;
-    if (azimuth !== null && azimuth >= -130 && azimuth <= 130) this.azimuth_angle = azimuth;
-    if (elevation !== null && elevation <= 90) this.elevation_angle = elevation;
+    if (azimuth !== null && azimuth >= -130 && azimuth <= 130) this.azimuth_angle = Number(azimuth.toFixed(2));
+    if (elevation !== null && elevation >= -15 && elevation <= 92) this.elevation_angle = Number(elevation.toFixed(2));
   }
 
   point(): void {
@@ -498,17 +503,19 @@ export class CamComponent {
       this.commandError = 'Azimuth must be a number between -130° and +130°.';
       return;
     }
-    if (!Number.isFinite(this.elevation_angle) || this.elevation_angle < 0 || this.elevation_angle > 90) {
-      this.commandError = 'Elevation must be a number between 0° and 90°.';
+    if (!Number.isFinite(this.elevation_angle) || this.elevation_angle < -15 || this.elevation_angle > 92) {
+      this.commandError = 'Elevation must be a number between -15° and 92°.';
       return;
     }
-    const targetAzimuth: number = this.normalizeAzimuth(this.azimuth_angle);
-    const targetElevation: number = this.elevation_angle;
+    this.roundPointInput('azimuth_angle');
+    this.roundPointInput('elevation_angle');
+    const targetAzimuth: number = this.normalizeAngle(this.azimuth_angle);
+    const targetElevation: number = this.normalizeAngle(this.elevation_angle);
     this.prepareCommand(() => {
       const metadata: TelescopeMetadata = this.telescopeMetadata!;
-      const rawAzimuth: number = this.normalizeAzimuth(targetAzimuth - metadata.az_encoder_offset);
-      const allowedSpan: number = this.normalizeAzimuth(metadata.az_encoder_max - metadata.az_encoder_min);
-      const targetPosition: number = this.normalizeAzimuth(rawAzimuth - metadata.az_encoder_min);
+      const rawAzimuth: number = this.normalizeAngle(targetAzimuth - metadata.az_encoder_offset);
+      const allowedSpan: number = this.normalizeAngle(metadata.az_encoder_max - metadata.az_encoder_min);
+      const targetPosition: number = this.normalizeAngle(rawAzimuth - metadata.az_encoder_min);
       if (targetPosition > allowedSpan) {
         this.commandError = `Azimuth must be within the allowed range: ${this.azimuthRange}.`;
         this.isLoading = false;
@@ -564,9 +571,9 @@ export class CamComponent {
     if (reading.health_status === 'FAULT'
         || ['ESTOP', 'WAITING FOR NORTH', 'AZ ENCODER UNAVAILABLE'].includes(reading.movement_status)) return false;
 
-    const rawAzimuth: number = this.normalizeAzimuth(reading.azimuth_angle - this.telescopeMetadata.az_encoder_offset);
-    const allowedSpan: number = this.normalizeAzimuth(this.telescopeMetadata.az_encoder_max - this.telescopeMetadata.az_encoder_min);
-    return this.normalizeAzimuth(rawAzimuth - this.telescopeMetadata.az_encoder_min) <= allowedSpan;
+    const rawAzimuth: number = this.normalizeAngle(reading.azimuth_angle - this.telescopeMetadata.az_encoder_offset);
+    const allowedSpan: number = this.normalizeAngle(this.telescopeMetadata.az_encoder_max - this.telescopeMetadata.az_encoder_min);
+    return this.normalizeAngle(rawAzimuth - this.telescopeMetadata.az_encoder_min) <= allowedSpan;
   }
 
   // This is a Point command to a reported position, not an emergency power cut.
@@ -613,8 +620,8 @@ export class CamComponent {
 
               this.isPointing = true;
               this.isPointingPageActive = true;
-              this.azimuth_angle = signedAzimuth(reading.azimuth_angle)!;
-              this.elevation_angle = reading.elevation_angle;
+              this.azimuth_angle = Number(signedAngle(reading.azimuth_angle)!.toFixed(2));
+              this.elevation_angle = Number(signedAngle(reading.elevation_angle)!.toFixed(2));
               this.showCommandMessage('Hold-position command sent.');
             },
             error: (error: HttpErrorResponse) => {
@@ -633,7 +640,7 @@ export class CamComponent {
     });
   }
 
-  private normalizeAzimuth(angle: number): number {
+  private normalizeAngle(angle: number): number {
     const normalized: number = angle % 360;
     return normalized < 0 ? normalized + 360 : normalized;
   }

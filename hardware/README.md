@@ -61,9 +61,31 @@ or a graph gap. Valid values appear as **Elevation Angle** everywhere.
 The operator confirms basic EL Point movement works in both directions with
 `EL_MOTOR_SIGN=-1` (2026-10-30). Firmware uses this encoder for feedback and
 drives the motor through L298 channel B. The operator confirms that physical limit
-switches open motor power; their encoder positions are still to be measured.
+switches open motor power; the reported upper stop is raw 65.93°, and the lower
+stop still needs measurement.
 No software travel endpoints are invented. `EL_MAX=360` is an input coordinate
 bound, not a claim that the dish can travel a full revolution.
+
+The UI now accepts EL **−15° to +92°** and shows that arc on the gauge, with
+signed angles in readings/history. Negative targets still wrap into the existing
+API/firmware 0–360° coordinates. Show more keeps raw `elEnc` for measurements.
+
+### Operator-selected EL zero — 2026-11-03
+
+The operator selected the position displayed as **46.7°** with the previous
++27.07° offset as zero. Its raw encoder value is `46.7 - 27.07 = 19.63°`.
+The new fixed `EL_ENCODER_OFFSET=-19.63` makes that position display 0° and
+maps a 0° command back to raw 19.63°. Upload the updated firmware; the UI must
+not apply another offset. Sensor readers, MPU levelling and motor control are
+unchanged. The zero is recorded in config, not captured at boot.
+
+The requested UI endpoints −15° and +92° map to raw 4.63° and 111.63° with the
+current 1:1 conversion. These are command conversions, not measured stops. The
+earlier upper raw stop 65.93° would now display +46.3°, so it does not also map
+to +92°. Verify scale/gearing and both physical endpoints before treating the
+UI range as confirmed travel. No firmware travel bounds or scale factor are
+added by this offset-only trial. The earlier +27.07° upper-stop assumption and
+midpoint-zero proposal are superseded by the operator's selected zero for now.
 
 For the supervised test after your upload:
 
@@ -71,7 +93,8 @@ For the supervised test after your upload:
    its current reading, with clearance and physical E-stop available.
 2. Verify the encoder approaches the target and stops. If it moves away, stop;
    reverse `EL_MOTOR_SIGN` before retrying. Check a small move in each direction.
-3. EL uses full PWM 255 (minimum and maximum), stopping within 0.01° tolerance
+3. EL uses minimum PWM 128 and maximum 255, scaling down over the final 30°
+   with the existing ramp, and stopping within 0.01° tolerance
    or when a sample crosses the target, to avoid repeated reversals. There
    is no fixed movement duration. Missing/stale feedback, ten seconds without
    command communication or E-stop still stop it. Repeated polling keeps an
@@ -81,7 +104,7 @@ For the supervised test after your upload:
 EL celestial Track remains stopped until the mechanical reference is established.
 AZ limits, pins, source calculations and asynchronous networking are preserved.
 EL motor direction/basic movement are accepted. Gear scale, recorded physical
-stops and quantified E-stop/stopping tests remain open. Replace the slow motor
+stops and quantified E-stop/stopping tests remain open. Qualify the faster replacement motor
 under ASTT-096; software checks do not establish physical accuracy.
 
 ## Current system
@@ -252,16 +275,19 @@ must not add the offset again. Historical rows keep their recorded values and
 may use the earlier compass reference. A bad compass/date sample marks magnetic
 diagnostics stale and health DEGRADED, but cannot change the manual offset.
 Encoder error/arrival and raw limits use the same fixed reference.
-`AZ POINT COMPLETE` records the AZ stop latch only; it does not qualify EL.
+`AZ POINT COMPLETE` records arrival inside the AZ tolerance; that Point remains active for encoder hold and does not qualify EL.
 `ON TARGET` additionally requires valid AZ and EL encoder feedback, both Point
-completion latches and both angles within tolerance. A successful POST alone never means the target was reached.
+arrival flags and both angles within tolerance. A successful POST alone never means the target was reached.
 Raw magnetic telemetry remains Tesla; CAM displays it in `µT`.
 Independent alignment accuracy, magnetic calibration and repeatable stopping
 checks remain pending under ASTT-043, ASTT-047, ASTT-051, and ASTT-085.
 
-AZ minimum PWM is `210`, with the existing ramp up to `255`. EL minimum and
-maximum are both `255`, so EL uses full duty outside its stop tolerance for now.
-The operator reports that EL moves slowly; physical motor performance is unqualified.
+Current operator-selected PWM ranges are AZ `150–255` and EL `128–255`.
+Their existing ramps remain 60° and 30°. The AZ-only trial keeps 0.1° tolerance,
+uses short corrections within 1° and waits 300 ms to settle before another
+correction or reversal. Nominal correction time is 80 ms, checked on each control
+loop; existing blocking sensor reads can lengthen it. No extra delay was added
+to sensor reads or HTTP. Loaded performance is still being tested.
 This is commanded duty, not guaranteed speed or torque. Keep tests short with
 E-stop available; higher duty can increase overshoot. EL has no fixed movement
 deadline; arrival and fault stops remain. Automatic stall detection/startup
@@ -273,7 +299,11 @@ The firmware builds one bounded diagnostic snapshot (a `1024`-byte buffer),
 prints it roughly once per second, and attaches it as `serial_log` to each
 five-second reading POST. It includes status, requested PWM, measured/target
 angles, sensor availability/values, site source, command events, and previous
-HTTP results. `reqPWM` is a request, not a measured motor current or speed.
+HTTP results. `azSpeed_dps` is the signed speed estimated over at least 250 ms
+from the existing filtered encoder; `azError` is the shortest signed angular
+error, while the motor still follows the permitted raw travel path. Speed is
+diagnostic only, unavailable until two valid samples exist. `reqPWM` is a request,
+not measured current. Log speed, error and requested PWM when tuning minimum power.
 `last_event` records the previous command outcome, not current readiness.
 Genuine encoder, compass or unsupported/unsynchronised-date failures name their cause.
 
@@ -290,11 +320,13 @@ The older calibration experiment remains under `hardware/research/magnetometer-r
 
 ### What happens after a position is disturbed?
 
-An active AZ Point uses its fixed reference and raw encoder feedback. On arrival
-the AZ motor stops and completion latches. Repeated polling of the same command
-ID is a heartbeat, not permission to restart; later base movement must not
-restart that completed Point. A new command ID is required. Automatic recovery
-is deferred under ASTT-091.
+An active AZ Point uses its fixed reference and raw encoder feedback. After
+arrival it holds that target: persistent error outside 0.1° resumes correction
+after settling. Repeated polling is only a heartbeat; it does not reset the
+correction timing. E-stop, blocked travel, lost feedback and communication timeout
+cancel movement; recovery requires a new command. EL retains its completion
+latch. Whole-base movement and coupling slip invisible to the encoder cannot be
+corrected by this hold; reference recovery remains deferred under ASTT-091.
 
 The manual reference never refreshes from compass readings or the current boot
 position. A ten-second communication timeout clears

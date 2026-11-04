@@ -17,9 +17,10 @@ Current draft values are:
 | Axis | Minimum PWM | Maximum PWM | Tolerance | Ramp range |
 | --- | ---: | ---: | ---: | ---: |
 | AZ | 140 | 255 | 1 degree | 60 degrees |
-| EL | 255 | 255 | 0.01 degree | 30 degrees |
+| EL | 210 | 255 | 0.01 degree | 30 degrees |
 
-EL-only trial (2026-11-02): min/max PWM are both 255. Stop within 0.01° or
+EL-only trial (2026-11-03): min/max PWM are 210/255 for the faster motor,
+using the existing error-based ramp. Stop within 0.01° or
 on target crossing; a fresh command is required for another move. Sensor
 readers and AZ control are unchanged. This setting is not measured accuracy.
 
