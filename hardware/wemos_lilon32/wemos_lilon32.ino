@@ -111,8 +111,8 @@ int elPointDirection = 0;
 
 // ---------- tracking ----------
 bool isTracking = false;
-float track_m1 = 0, track_m2 = 0;
-float track_c1 = 0, track_c2 = 0;
+double track_m1 = 0, track_m2 = 0;
+double track_c1 = 0, track_c2 = 0;
 float track_T_ra = 0, track_T_dec = 0;
 float track_A = 0, track_phi = 0, track_D = 0;
 
@@ -602,9 +602,9 @@ int computeElevationPwm(float errorSize) {
 }
 
 
-// Supervised Point tests only; no assumed EL software stops or MPU reference.
+// Point and Track share encoder feedback; no assumed EL stops or MPU reference.
 int controlElevation(unsigned long now) {
-  if (!elPointActive || isTracking) {
+  if (!elPointActive) {
     stopElevationMotor();
     return 0;
   }
@@ -623,11 +623,11 @@ int controlElevation(unsigned long now) {
   if (pwm == 0) {
     stopElevationMotor();
     // Keep the Point active for hold, just as AZ does; faults/timeout still cancel it.
-    elPointComplete = true;
+    elPointComplete = !isTracking;
     elPointDirection = 0;
     elSettling = true;
     elMotionChangedAt = now;
-    commandMessage = "EL_POINT_COMPLETE";
+    if (!isTracking) commandMessage = "EL_POINT_COMPLETE";
     return 0;
   }
   elPointComplete = false;
@@ -652,7 +652,7 @@ int controlElevation(unsigned long now) {
   if (elPointDirection == 0) elMotionChangedAt = now;
   elPointDirection = direction;
   driveElevationMotor(pwm, direction * EL_MOTOR_SIGN);
-  movementStatus = "MOVING";
+  movementStatus = isTracking ? "TRACKING" : "MOVING";
   return pwm;
 }
 
@@ -682,20 +682,22 @@ void readGPS() {
 float computeAzFromSource() {
   time_t nowUtc = time(nullptr);
   if (nowUtc < 1700000000) return -1.0;  // clock not synced yet
-  if (track_T_ra <= 0 || track_T_dec == 0) return -1.0;
+  if (!isfinite(track_m1) || !isfinite(track_m2) || !isfinite(track_c1) || !isfinite(track_c2)
+      || !isfinite(track_T_ra) || !isfinite(track_T_dec) || !isfinite(track_A)
+      || !isfinite(track_phi) || !isfinite(track_D) || track_T_ra <= 0 || track_T_dec <= 0) return -1.0;
 
 
   struct tm utc;
   gmtime_r(&nowUtc, &utc);
 
 
-  // day of year, with a fraction for the time of day
-  float dayOfYear = utc.tm_yday + 1
+  // Double precision keeps fast test sources smooth late in the year.
+  double dayOfYear = utc.tm_yday + 1
                     + (utc.tm_hour * 3600.0 + utc.tm_min * 60.0 + utc.tm_sec) / 86400.0;
 
 
   // ra is piecewise linear in hours, one slope per half of the year
-  float raHours;
+  double raHours;
   if (dayOfYear < track_T_ra) {
     raHours = track_m1 * dayOfYear + track_c1;
   } else {
@@ -1021,6 +1023,33 @@ void clearCommandTargets() {
 }
 
 
+// Keep the command alive outside the visible/reachable arc, with both motors stopped.
+void updateTrackingTargets() {
+  if (!isTracking) return;
+  float azimuth = computeAzFromSource();
+  if (!isfinite(azimuth) || azimuth < 0 || !isfinite(trackEl)) {
+    clearCommandTargets();
+    commandMessage = "TRACK_FAILED_CLOCK_OR_PARAMETERS";
+    return;
+  }
+  if (trackEl < 0 || trackEl > 90
+      || chooseDirection(azEncoderAngle, trueAzimuthToEncoder(azimuth)) == 0) {
+    stopAzimuthMotor();
+    stopElevationMotor();
+    apiAzTarget = apiElTarget = -1.0f;
+    elPointActive = false;
+    azDriveDirection = elPointDirection = 0;
+    azSettling = elSettling = false;
+    commandMessage = "TRACK_SOURCE_OUTSIDE_RANGE";
+    return;
+  }
+  apiAzTarget = azimuth;
+  apiElTarget = trackEl;
+  elPointActive = true;
+  commandMessage = "TRACKING";
+}
+
+
 void expireCommand(unsigned long now) {
   if ((azPointActive || isTracking || apiElTarget >= 0) && now - lastApiTime >= SOURCE_TIMEOUT) {
     networkGeneration++;
@@ -1145,15 +1174,19 @@ void applyCommandReply(const NetworkReply &reply) {
     float newEl = doc["point"]["target_el_angle"] | -1.0f;
     if (startPoint(newAz, newEl)) lastApiTime = reply.createdAt;
   } else if (strcmp(cmdType, "track") == 0) {
-    track_m1 = doc["track"]["source"]["m_1"] | 0.0f;
-    track_m2 = doc["track"]["source"]["m_2"] | 0.0f;
-    track_c1 = doc["track"]["source"]["c_1"] | 0.0f;
-    track_c2 = doc["track"]["source"]["c_2"] | 0.0f;
-    track_T_ra = doc["track"]["source"]["T_ra"] | 1.0f;
-    track_A = doc["track"]["source"]["A"] | 0.0f;
-    track_phi = doc["track"]["source"]["phi"] | 0.0f;
-    track_D = doc["track"]["source"]["D"] | 0.0f;
-    track_T_dec = doc["track"]["source"]["T_dec"] | 1.0f;
+    if (!elEncoderValid || !isfinite(elEncoderAngle) || millis() - lastElEncoderRead > 250) {
+      commandMessage = "EL_ENCODER_UNAVAILABLE_SEND_NEW_COMMAND";
+      return;
+    }
+    track_m1 = doc["track"]["source"]["m_1"] | double(NAN);
+    track_m2 = doc["track"]["source"]["m_2"] | double(NAN);
+    track_c1 = doc["track"]["source"]["c_1"] | double(NAN);
+    track_c2 = doc["track"]["source"]["c_2"] | double(NAN);
+    track_T_ra = doc["track"]["source"]["T_ra"] | NAN;
+    track_A = doc["track"]["source"]["A"] | NAN;
+    track_phi = doc["track"]["source"]["phi"] | NAN;
+    track_D = doc["track"]["source"]["D"] | NAN;
+    track_T_dec = doc["track"]["source"]["T_dec"] | NAN;
     isTracking = true;
     lastCommandId = commandId;
     lastApiTime = reply.createdAt;
@@ -1313,7 +1346,9 @@ void loop() {
     azNorthReferenceReady = false;
   }
   setAzimuthReference(azCurrent, trueHeading);
-  if ((!networkReady || !azNorthReferenceReady || !azEncoderValid)
+  if ((!networkReady || !azNorthReferenceReady || !azEncoderValid
+       || (isTracking && (!elEncoderValid || !isfinite(elEncoderAngle)
+                          || millis() - lastElEncoderRead > 250)))
       && (azPointActive || isTracking || apiElTarget >= 0)) {
     networkGeneration++;
     clearCommandTargets();
@@ -1323,20 +1358,7 @@ void loop() {
   now = millis();
 
 
-  // tracking keeps recomputing its own target
-  if (isTracking) {
-    float computed = computeAzFromSource();
-    if (computed < 0) {
-      isTracking = false;
-      apiAzTarget = -1.0f;
-      apiElTarget = -1.0f;
-      commandMessage = "TRACK_FAILED_CLOCK_OR_PARAMETERS";
-    } else {
-      apiAzTarget = computed;
-      apiElTarget = (trackEl >= 0.0f && trackEl <= 90.0f) ? trackEl : -1.0f;
-      if (apiElTarget < 0) commandMessage = "TRACK_SOURCE_OUTSIDE_EL_RANGE";
-    }
-  }
+  updateTrackingTargets();
 
 
   bool azTargetFresh = (apiAzTarget >= AZ_MIN && apiAzTarget <= AZ_MAX)
@@ -1353,7 +1375,8 @@ void loop() {
     movementStatus = referenceReady ? "AZ ENCODER UNAVAILABLE" : "AZ FEEDBACK UNAVAILABLE";
   } else if (!azTargetFresh || (!isTracking && !azPointActive)) {
     stopAzimuthMotor();
-    movementStatus = azPointComplete ? "AZ POINT COMPLETE" : "IDLE";
+    movementStatus = isTracking ? "TRACK OUTSIDE RANGE"
+                                : (azPointComplete ? "AZ POINT COMPLETE" : "IDLE");
     if (azPointComplete) azError = fabs(signedAngleDifference(encoderToTrueAzimuth(azCurrent), apiAzTarget));
   } else {
     azTarget = norm360(apiAzTarget);

@@ -50,6 +50,19 @@ After the approved switch, the frontend and existing reading/command routes
 returned HTTP 200 with the persistent database retained. Old rows correctly
 return `serial_log: null`; new diagnostic lines require updated firmware readings.
 
+## Track command repair — 2026-11-04
+
+Command history permits repeated source names; the source catalogue still keeps
+names unique. Migration retains command IDs/history, and POST returns the newly
+inserted ID. This fixes repeated Track requests returning an old command or
+raising IndexError after a failed insert. Rebuild the backend to apply it.
+
+The separate **Fast sky sweep (1 min, 2026)** source uses the existing fields;
+original **Sun** is unchanged. The revised parameters repeat every minute
+while staying above the local horizon: AZ about −62° to −35°, EL 33° to 57°.
+Refresh CAM and submit a new Track command to use revised source parameters.
+The previous two-axis Track firmware is required for EL tracking. See [Track checks](../agents/work/056-continuous-tracking/completion.md).
+
 ## Current API flow
 
 - Hardware posts telemetry to `POST /api/v1/readings`.
@@ -154,8 +167,8 @@ ramp and 0.1° tolerance. The current trial adds short near-target corrections,
 settling before reversal and continued encoder-based hold after arrival.
 Lost/stale feedback, E-stop or ten seconds without command communication cancel
 movement. Physical switches cut motor power while stops are being measured.
-EL celestial tracking is disabled for this phase; signed midpoint coordinates
-and software travel protection follow the recorded endpoints. The hold button
+EL Track now follows the source through the same encoder controller. Both axes
+pause for out-of-range Track targets; physical EL stop calibration remains open. The hold button
 uses the latest referenced elevation and requires valid encoder feedback.
 
 Rebuild/recreate only ASTT's backend to load compatibility changes, preserving

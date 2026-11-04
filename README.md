@@ -18,7 +18,7 @@ Read [AGENTS.md](AGENTS.md) before starting work. Software details are in
 
 ## Progress
 
-**44 of 92 work items complete.** The checklist is the project source of truth.
+**45 of 92 work items complete.** The checklist is the project source of truth.
 Only mark an item complete after its acceptance criteria have been verified.
 ASTT-055 basic encoder-feedback EL Point movement is complete: the operator
 confirms it works in both directions on 2026-10-30. On 2026-11-04 the operator
@@ -105,13 +105,13 @@ checks and full qualification remain open; automatic north-finding is deferred.
 - [ ] **ASTT-089** Show MPU-based base tilt and Level / Needs levelling / Unknown status. — [Draft](agents/work/089-base-level-indicator/prompt.md)
 - [ ] **ASTT-090** Detect low-power motor hum and test a bounded PWM increase with stall protection. — [Logged](agents/work/090-motor-startup-power/prompt.md); follow-up to ASTT-045
 
-### 7. Full-system Point and Track integration — 6/8 complete
+### 7. Full-system Point and Track integration — 7/8 complete
 
 - [x] **ASTT-052** Send Point commands from GUI to backend to hardware. — Sanele
 - [x] **ASTT-053** Send Track commands from GUI to backend to hardware. — Sanele
 - [x] **ASTT-054** Calculate source-based AZ targets. — Sanele
 - [x] **ASTT-055** Implement basic encoder-feedback EL Point movement in both directions. — [Operator confirmed 2026-10-30](agents/work/055-elevation-control/completion.md); limits/zero and full qualification remain ASTT-044/042/050/051/094
-- [ ] **ASTT-056** Complete continuous Track mode with physical AZ and EL movement. — Critical
+- [x] **ASTT-056** Complete continuous Track mode with physical AZ and EL movement. — [Operator confirmed](agents/work/056-continuous-tracking/completion.md); one-minute test pattern works reliably; quantified accuracy and extended qualification remain separate tasks
 - [x] **ASTT-057** Return actual AZ, EL, and sensor telemetry during movement. — Critical
 - [x] **ASTT-058** Display live movement and telemetry in the GUI. — High
 - [ ] **ASTT-059** Test source to command to movement to feedback end to end. — Critical

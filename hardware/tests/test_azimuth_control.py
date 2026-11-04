@@ -3,6 +3,8 @@
 from pathlib import Path
 import os
 import re
+import json
+import runpy
 import subprocess
 import tempfile
 
@@ -76,6 +78,9 @@ program = r'''
 #include <vector>
 #include <ArduinoJson.h>
 using std::isfinite;
+using std::isnan;
+using std::min;
+using std::max;
 using String = std::string;
 const int HIGH = 1;
 const int LOW = 0;
@@ -153,7 +158,6 @@ unsigned long pulseIn(int pin, int state, unsigned long timeout) {
   return state == HIGH ? testHigh : testLow;
 }
 float trackEl = 0;
-float computeAzFromSource() { return 220; }
 struct SerialStub {
   std::vector<String> lines;
   void println(const String& value) { lines.push_back(value); }
@@ -198,14 +202,17 @@ for name in ('magLastAttempt', 'magInitializedAt'):
     program += re.search(r'^unsigned long ' + name + r' = [^;]+;', source, re.M)[0] + '\n'
 program += source[source.index('enum class NetworkOperation'):source.index('// ---------- readings sent to backend ----------')]
 for name in ('azDriveDirection', 'azSettling', 'azMotionChangedAt', 'azSpeedDps', 'azSpeedEncoder', 'azSpeedSampleAt', 'azEncoderAngle', 'azEncoderReady', 'azEncoderValid', 'elEncoderAngle', 'elEncoderValid', 'lastElEncoderRead', 'azEncoderOffset', 'azNorthReferenceReady', 'azHeadingValid', 'azMotorStopped', 'elMotorStopped', 'movementStatus', 'healthStatus', 'serialLog', 'commandMessage', 'apiAzTarget', 'apiElTarget', 'lastApiTime', 'startupCommandId', 'lastCommandId', 'commandBaselineReady', 'azPointActive', 'azPointComplete', 'elPointActive', 'elPointComplete', 'elPointDirection', 'elSettling', 'elMotionChangedAt', 'isTracking', 'estopWasActive', 'magOk', 'magneticSampleValid', 'mpuOk', 'magneticFieldX', 'magneticFieldY', 'magneticFieldZ', 'magneticHeading', 'declination', 'trueHeading', 'mpuAccelX', 'mpuAccelY', 'mpuAccelZ', 'mpuGyroX', 'mpuGyroY', 'mpuGyroZ', 'levelRoll', 'levelPitch', 'latitude', 'longitude', 'altitude', 'azimuthAngle', 'elevationAngle', 'lastCommandHttp', 'lastReadingHttp', 'lastMetadataHttp', 'lastDiagnosticTime', 'lastPostTime', 'lastPollTime', 'telescopeId', 'track_m1', 'track_c1', 'track_T_ra', 'track_A'):
-    program += re.search(r'^(?:float|bool|String|int|unsigned long) ' + name + r' = [^;]+;', source, re.M)[0] + '\n'
-for name in ('magneticDeclination', 'currentDecimalYear', 'norm360', 'cwDistance', 'signedAngleDifference', 'encoderToTrueAzimuth', 'trueAzimuthToEncoder', 'encoderToElevation', 'elevationToEncoder', 'inAzimuthNoGoZone', 'chooseDirection', 'readAzEncoderAngle', 'readElEncoderAngle', 'setAzimuthReference', 'checkAzimuthFeedback', 'initializeMagnetometer', 'ensureMagnetometerReady', 'readMagneticField', 'computeTrueHeading', 'stopAzimuthMotor', 'stopElevationMotor', 'driveAzimuthMotor', 'driveElevationMotor', 'updateAzimuthSpeed', 'computeAzimuthPwm', 'computeElevationPwm', 'controlElevation', 'acceptCommandId', 'clearCommandTargets', 'latchEmergencyStop', 'expireCommand', 'finishAzPoint', 'controlAzimuth', 'startPoint', 'startNetworkWorker', 'queueNetworkRequest', 'publishAzimuthReference', 'updateHealthStatus', 'readSensors', 'buildDiagnosticLine', 'updateDiagnostics', 'postReadings', 'applyCommandReply', 'receiveNetworkReply', 'serviceNetwork'):
+    program += re.search(r'^(?:float|double|bool|String|int|unsigned long) ' + name + r' = [^;]+;', source, re.M)[0] + '\n'
+for name in ('magneticDeclination', 'currentDecimalYear', 'norm360', 'cwDistance', 'signedAngleDifference', 'encoderToTrueAzimuth', 'trueAzimuthToEncoder', 'encoderToElevation', 'elevationToEncoder', 'inAzimuthNoGoZone', 'chooseDirection', 'readAzEncoderAngle', 'readElEncoderAngle', 'setAzimuthReference', 'checkAzimuthFeedback', 'initializeMagnetometer', 'ensureMagnetometerReady', 'readMagneticField', 'computeTrueHeading', 'computeAzFromSource', 'stopAzimuthMotor', 'stopElevationMotor', 'driveAzimuthMotor', 'driveElevationMotor', 'updateAzimuthSpeed', 'computeAzimuthPwm', 'computeElevationPwm', 'controlElevation', 'acceptCommandId', 'clearCommandTargets', 'updateTrackingTargets', 'latchEmergencyStop', 'expireCommand', 'finishAzPoint', 'controlAzimuth', 'startPoint', 'startNetworkWorker', 'queueNetworkRequest', 'publishAzimuthReference', 'updateHealthStatus', 'readSensors', 'buildDiagnosticLine', 'updateDiagnostics', 'postReadings', 'applyCommandReply', 'receiveNetworkReply', 'serviceNetwork'):
     program += function(name) + '\n'
 control = source[source.index('  bool azTargetFresh ='):source.index('  int elPwm = controlElevation(now);')]
-feedback = loop[loop.index('  if ((!networkReady || !azNorthReferenceReady || !azEncoderValid)'):loop.index('  receiveNetworkReply(false);')]
+feedback = loop[loop.index('  if ((!networkReady || !azNorthReferenceReady || !azEncoderValid'):loop.index('  receiveNetworkReply(false);')]
 program += '\nint runAzimuthControl(float azCurrent, unsigned long now) {\n' + feedback + control + '\nreturn azPwm;\n}\n'
 program += '\nvoid runEstopControl() {\n  unsigned long now = millis();\n  bool estopActive = true;\n' + estop_branch + '\n}\n'
 program += loop + '\n'
+fast_source = runpy.run_path(str(Path(__file__).resolve().parents[1] / 'research/fast-sky-source.py'))['fast_sky_source']
+track_payload = json.dumps(dict(id=1, command_type='track', track=dict(source=fast_source(2026, 18.47869))))
+program += '\nconst char* fastTrackPayload = R"json(' + track_payload + ')json";\n'
 program += r'''
 #undef time
 time_t utcTimestamp(int year, int month, int day, int hour = 0) {
@@ -739,6 +746,105 @@ void testElevationSettlingAndHold() {
   assert(!acceptCommandId(1) && controlElevation(millis()) == 0 && !elPointActive);
 }
 
+void testTracking() {
+  reset();
+  USE_MANUAL_AZ_REFERENCE = true;
+  azNorthReferenceReady = true; azEncoderOffset = 92.2f; azEncoderAngle = 267.8f;
+  EL_ENCODER_OFFSET = 70.37f; elEncoderAngle = elevationToEncoder(0);
+  latitude = -33.94448f; longitude = 18.47869f;
+  NetworkReply reply{};
+  reply.status = 200; reply.createdAt = millis();
+  std::strcpy(reply.body, fastTrackPayload);
+  applyCommandReply(reply);
+  assert(isTracking && lastCommandId == 1);
+
+  // Check a whole cycle with real firmware math, including late-year precision.
+  float minEl = 90, maxEl = 0, minAz = 360, maxAz = 0;
+  for (int month : {1, 11, 12}) {
+    time_t start = utcTimestamp(2026, month, 1);
+    for (int second = 0; second < 60; second++) {
+      testNow = start + second;
+      float az = computeAzFromSource();
+      assert(az > 297.5f && az < 325.0f && trackEl > 33.0f && trackEl < 57.1f);
+      assert(!inAzimuthNoGoZone(trueAzimuthToEncoder(az)));
+      minEl = std::min(minEl, trackEl); maxEl = std::max(maxEl, trackEl);
+      minAz = std::min(minAz, az); maxAz = std::max(maxAz, az);
+    }
+    testNow = start + 45;
+    float az = computeAzFromSource(), el = trackEl;
+    testNow += 60;
+    assert(std::fabs(signedAngleDifference(az, computeAzFromSource())) < 0.02f);
+    assert(std::fabs(trackEl - el) < 0.01f);
+  }
+  assert(maxEl - minEl > 23 && maxAz - minAz > 26); // Both axes have a nonzero excursion.
+  testNow = utcTimestamp(2026, 11, 4);
+  float previous = computeAzFromSource();
+  for (int i = 0; i < 10; i++) {
+    testNow++;
+    float next = computeAzFromSource();
+    float step = std::fabs(signedAngleDifference(previous, next));
+    assert(step > 0.01f && step < 3.0f); // No late-year float quantization/staircase.
+    previous = next;
+  }
+
+  updateTrackingTargets();
+  assert(elPointActive && apiAzTarget > 0 && apiElTarget > 0);
+  assert(runAzimuthControl(azEncoderAngle, millis()) > 0);
+  assert(controlElevation(millis()) > 0 && movementStatus == "TRACKING");
+  elEncoderAngle = elevationToEncoder(apiElTarget);
+  assert(controlElevation(millis()) == 0 && !elPointComplete && isTracking);
+  testNow += 100; testMilliseconds += EL_SETTLE_MS; lastElEncoderRead = millis();
+  updateTrackingTargets();
+  assert(controlElevation(millis()) > 0); // EL follows the next target without another command.
+  reply.createdAt = millis(); applyCommandReply(reply);
+  assert(isTracking && elPointActive && lastApiTime == millis());
+
+  // Other sources can still go below the horizon; both motors must pause.
+  track_A = 0; track_D = 80;
+  updateTrackingTargets();
+  assert(isTracking && apiAzTarget < 0 && apiElTarget < 0 && !elPointActive);
+  assert(azMotorStopped && elMotorStopped && commandMessage == "TRACK_SOURCE_OUTSIDE_RANGE");
+  runAzimuthControl(azEncoderAngle, millis());
+  assert(movementStatus == "TRACK OUTSIDE RANGE");
+  track_A = 15; track_D = 0;
+  updateTrackingTargets();
+  assert(isTracking && elPointActive && apiElTarget > 0);
+
+  testNow = utcTimestamp(2026, 11, 4) + 450;
+  azEncoderOffset = norm360(computeAzFromSource() - 80); // Target maps to blocked raw 80 degrees.
+  updateTrackingTargets();
+  assert(isTracking && apiAzTarget < 0 && !elPointActive && azMotorStopped && elMotorStopped);
+  azEncoderOffset = 92.2f; updateTrackingTargets();
+  assert(elPointActive && apiElTarget > 0);
+
+  // Track loses either encoder => cancel both axes, including after an outside-range pause.
+  testElHigh = 0; testMilliseconds += 100;
+  loop();
+  assert(!isTracking && azMotorStopped && elMotorStopped);
+  assert(commandMessage == "FEEDBACK_LOST_SEND_NEW_COMMAND");
+  testElHigh = testElLow = 1800; elEncoderValid = true; elEncoderAngle = 180; lastElEncoderRead = millis();
+  applyCommandReply(reply); assert(!isTracking); // Old ID cannot restart after a fault.
+  assert(!acceptCommandId(1));
+
+  lastCommandId = 0; reply.createdAt = millis(); applyCommandReply(reply);
+  assert(isTracking);
+  testMilliseconds += SOURCE_TIMEOUT; expireCommand(millis());
+  assert(!isTracking && azMotorStopped && elMotorStopped);
+  applyCommandReply(reply); assert(!isTracking);
+
+  lastCommandId = 0; lastElEncoderRead = millis(); applyCommandReply(reply);
+  assert(isTracking);
+  latchEmergencyStop(); assert(!isTracking && azMotorStopped && elMotorStopped);
+
+  // Invalid parameters and an unsynced clock cancel tracking instead of creating targets.
+  isTracking = true; track_T_dec = 0;
+  updateTrackingTargets(); assert(!isTracking && apiAzTarget < 0 && apiElTarget < 0);
+  track_T_dec = 1; track_m1 = NAN; isTracking = true;
+  updateTrackingTargets(); assert(!isTracking);
+  track_m1 = 0; testNow = 0; isTracking = true;
+  updateTrackingTargets(); assert(!isTracking && commandMessage == "TRACK_FAILED_CLOCK_OR_PARAMETERS");
+}
+
 void testHealthAndDiagnostics() {
   reset();
   mpuOk = elEncoderValid = true; GPS.fix = true;
@@ -1048,10 +1154,10 @@ int main() {
   testHigh = 0; assert(readAzEncoderAngle() == previous && !azEncoderValid);
   testHigh = 100; testLow = 0; assert(readAzEncoderAngle() == previous && !azEncoderValid);
   testDateAndCompass(); testMagnetometerStartupAndRecovery(); testImmediateReference(); testCommands();
-  testHealthAndDiagnostics(); testEstopTelemetry(); testLiveCompass(); testAsyncNetwork(); testReportedNorthWait();
+  testTracking(); testHealthAndDiagnostics(); testEstopTelemetry(); testLiveCompass(); testAsyncNetwork(); testReportedNorthWait();
   testAzimuthSettlingAndHold(); testAzimuthSpeed(); testManualReference(); testElevationEncoder(); testElevationPoint(); testElevationCrossing(); testElevationSettlingAndHold();
   std::cout << "PASS: " << cases << " safe routes, fixed manual reference and compass fallback, "
-            << "EL PWM readings/loss/recovery, magnetometer startup/recovery, Tesla scaling, AZ settling/hold/speed and no fault replay, EL pulsing/reversal/hold/no fault replay, timeout, health, E-stop and async network safety" << std::endl;
+            << "EL PWM readings/loss/recovery, magnetometer startup/recovery, Tesla scaling, AZ settling/hold/speed and no fault replay, EL pulsing/reversal/hold/no fault replay, two-axis Track and above-horizon 1-minute source/range pauses, timeout, health, E-stop and async network safety" << std::endl;
 }
 '''
 with tempfile.TemporaryDirectory(prefix='astt-firmware-test-') as directory:

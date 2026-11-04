@@ -9,7 +9,13 @@ agents/work/NNN-short-title/
 ```
 
 Use the existing `ASTT-NNN` number from the root checklist. The next number for
-a new, unlisted item is **100**. Current project progress is **44/92 complete**.
+a new, unlisted item is **100**. Current project progress is **45/92 complete**.
+
+## Current Track work — 2026-11-04
+
+[056 Track repair/test](056-continuous-tracking/completion.md): backend repeated-source
+fix, both-axis tracking and a separate 1-minute synthetic pattern are operator-confirmed. Original Sun and working Point control are retained. ASTT-056
+is complete for basic continuous tracking; 088 still covers true solar replay/error recording.
 
 ## Current UI work — 2026-11-02
 

@@ -101,8 +101,28 @@ For the supervised test after your upload:
    cancel movement. Old command IDs cannot restart a cancelled Point. Record
    both physical stop readings; switches still cut motor power at the stops.
 
-EL celestial Track remains stopped until the mechanical reference is established.
-AZ limits, pins, source calculations and asynchronous networking are preserved.
+EL Track now uses the same encoder controller as Point. Both axes pause when
+Track targets fall outside reachable AZ travel or EL 0–90°; they resume when
+that source returns to range. Encoder loss, timeout or E-stop cancel Track and
+require a fresh command. AZ limits, pins, encoder readers and networking are preserved.
+
+### Fast Track test source — ASTT-056
+
+Select **Fast sky sweep (1 min, 2026)** for a synthetic repeating arc that stays
+above the horizon at the configured site. The revised parameters give approximately
+AZ −62.41° to −35.31° and EL 33.33° to 56.98°, completing a cycle every minute.
+RA follows sidereal time to keep hour angle at 30°; DEC oscillates between ±15°.
+Selection does not reset the phase. Original **Sun** is unchanged for real-time
+tracking. Refresh CAM and send a new Track command after updating source parameters;
+existing commands retain their saved source values. This parameter adjustment
+requires no firmware change beyond the previous two-axis Track sketch.
+
+`python3 hardware/research/fast-sky-source.py --year 2026` prints the existing
+API source fields. `--period-minutes` can generate a shorter cycle; regenerate
+for another site/year. These are day-based coefficients, unlike the pasted
+research script's minute-based annual compression. No clock, API fields or
+calibration changes are needed. This pattern is not a solar accuracy reference.
+See [Track checks](../agents/work/056-continuous-tracking/completion.md).
 EL motor direction/basic movement are accepted. Gear scale, recorded physical
 stops and quantified E-stop/stopping tests remain open. Qualify the faster replacement motor
 under ASTT-096; software checks do not establish physical accuracy.

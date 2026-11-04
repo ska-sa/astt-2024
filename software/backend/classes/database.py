@@ -65,7 +65,7 @@ class Database:
             `command_type` VARCHAR(50) NOT NULL,
             `target_az_angle` DOUBLE DEFAULT NULL,
             `target_el_angle` DOUBLE DEFAULT NULL,
-            `name` TEXT UNIQUE DEFAULT NULL,
+            `name` TEXT DEFAULT NULL,
             `m_1` REAL DEFAULT NULL,
             `m_2` REAL DEFAULT NULL,
             `c_1` REAL DEFAULT NULL,
@@ -114,13 +114,34 @@ class Database:
             self.cur.execute("ALTER TABLE reading ADD COLUMN el_encoder_angle DOUBLE DEFAULT NULL")
 
     def migrate_command_table(self) -> None:
+        """Allow repeated Track sources without changing historical command IDs."""
         columns = self.cur.execute("PRAGMA table_info(command)").fetchall()
         column_names = [column[1] for column in columns]
 
-        if "command_type" in column_names:
+        indexes = self.cur.execute("PRAGMA index_list(command)").fetchall()
+        unique_name = any(
+            index[2] and [column[2] for column in self.cur.execute(
+                "SELECT * FROM pragma_index_info(?)", (index[1],)
+            ).fetchall()] == ['name']
+            for index in indexes
+        )
+        if "command_type" in column_names and not unique_name:
             return
 
-        self.cur.executescript("""
+        sequence = self.cur.execute(
+            "SELECT seq FROM sqlite_sequence WHERE name = 'command'"
+        ).fetchone()
+        last_id = int(sequence[0]) if sequence else 0
+        if "command_type" in column_names:
+            copy_columns = ', '.join(f'`{name}`' for name in column_names)
+            copy_values = copy_columns
+        else:
+            copy_columns = 'id, user_id, telescope_id, command_type, target_az_angle, target_el_angle, created_at'
+            copy_values = "id, user_id, telescope_id, 'point', target_az_angle, target_el_angle, created_at"
+
+        try:
+            self.cur.executescript(f"""
+        BEGIN;
         ALTER TABLE command RENAME TO old_command;
 
         CREATE TABLE command(
@@ -130,7 +151,7 @@ class Database:
             `command_type` VARCHAR(50) NOT NULL,
             `target_az_angle` DOUBLE DEFAULT NULL,
             `target_el_angle` DOUBLE DEFAULT NULL,
-            `name` TEXT UNIQUE DEFAULT NULL,
+            `name` TEXT DEFAULT NULL,
             `m_1` REAL DEFAULT NULL,
             `m_2` REAL DEFAULT NULL,
             `c_1` REAL DEFAULT NULL,
@@ -143,27 +164,15 @@ class Database:
             `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP
         );
 
-        INSERT INTO command (
-            id,
-            user_id,
-            telescope_id,
-            command_type,
-            target_az_angle,
-            target_el_angle,
-            created_at
-        )
-        SELECT
-            id,
-            user_id,
-            telescope_id,
-            'point',
-            target_az_angle,
-            target_el_angle,
-            created_at
-        FROM old_command;
+        INSERT INTO command ({copy_columns}) SELECT {copy_values} FROM old_command;
+        UPDATE sqlite_sequence SET seq = MAX(seq, {last_id}) WHERE name = 'command';
 
         DROP TABLE old_command;
+        COMMIT;
         """)
+        except sqlite3.Error:
+            self.conn.rollback()
+            raise
 
     def migrate_source_table(self) -> None:
         columns = self.cur.execute("PRAGMA table_info(source)").fetchall()
