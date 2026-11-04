@@ -59,7 +59,7 @@ bytes flash (78%), 53,980 bytes static RAM (16%). `git diff --check` passes.
 No flashing, powered commands, commit or push. Physical reference accuracy and
 full ASTT-042 qualification remain pending.
 
-## Selected zero and UI range — 2026-11-03 (current)
+## Selected zero and UI range — 2026-11-03 (superseded)
 
 - Operator selected previous UI 46.7° as zero. With previous offset +27.07°,
   raw zero is 19.63°; current `EL_ENCODER_OFFSET=-19.63` applies it once.
@@ -81,3 +81,12 @@ full ASTT-042 qualification remain pending.
   overflow and no runtime errors. Existing build warnings remain unchanged.
 - No live command, upload, service restart, commit or push. Operator pointing
   accuracy, encoder scale and physical endpoint verification remain pending.
+
+## Operator-confirmed adjustment — 2026-11-04 (current)
+
+Operator adds +90° to the earlier offset: final declaration `-19.63 + 90`,
+net +70.37°. They confirm both axes now work and authorize commit/push. Forward
+telemetry and inverse command conversion retain this one offset; raw sensor
+readings are unchanged. Zero now maps to raw 289.63°, and raw 19.63° reads 90°.
+Historical raw upper 65.93° would read 136.3°, so fresh stop/reference/scale
+measurements remain required. No software EL limits or invented scale added.

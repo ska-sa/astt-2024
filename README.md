@@ -21,8 +21,10 @@ Read [AGENTS.md](AGENTS.md) before starting work. Software details are in
 **44 of 92 work items complete.** The checklist is the project source of truth.
 Only mark an item complete after its acceptance criteria have been verified.
 ASTT-055 basic encoder-feedback EL Point movement is complete: the operator
-confirms it works in both directions on 2026-10-30. Measured EL limits, midpoint
-zero and full qualification remain open; automatic north-finding is deferred.
+confirms it works in both directions on 2026-10-30. On 2026-11-04 the operator
+confirms both axes now move and hold correctly, with EL offset +70.37° and
+0.1° tolerance on both axes. Measured EL limits, independent reference/accuracy
+checks and full qualification remain open; automatic north-finding is deferred.
 
 ### 1. Software and backend foundation — 17/21 complete
 
@@ -72,7 +74,7 @@ zero and full qualification remain open; automatic north-finding is deferred.
 - [ ] **ASTT-096** Replace the EL motor with a faster suitable motor and retest loaded movement/stopping. — [IN PROGRESS HIGH](agents/work/096-faster-el-motor/prompt.md)
 - [ ] **ASTT-094** Use signed midpoint-zero coordinates and reliable encoder-based two-axis Point control. — [TODAY CRITICAL](agents/work/094-encoder-mechanical-coordinates/prompt.md)
 - [ ] **ASTT-093** Remove network-induced AZ pauses, raise minimum PWM, and show live measured AZ/device status. — [Software verified; supervised motion pending](agents/work/093-continuous-az-motion/completion.md)
-- [ ] **ASTT-091** Add automatic recovery after external repositioning. — [LATER HIGH; deferred](agents/work/091-repositioning-recovery/prompt.md); whole-base/reference recovery deferred; AZ encoder hold trial is ASTT-045
+- [ ] **ASTT-091** Add automatic recovery after external repositioning. — [LATER HIGH; deferred](agents/work/091-repositioning-recovery/prompt.md); whole-base/reference recovery deferred; AZ/EL encoder holding confirmed under ASTT-045
 
 ### 5. Mechanical integration and enclosure — 2/9 complete
 
@@ -90,10 +92,10 @@ zero and full qualification remain open; automatic north-finding is deferred.
 
 - [x] **ASTT-040** Establish the true-north reference. — Sanele
 - [x] **ASTT-041** Establish the telescope GPS location. — Sanele
-- [ ] **ASTT-042** Set and verify the recorded EL encoder zero. — [TODAY CRITICAL](agents/work/042-elevation-reference/prompt.md); operator-selected raw 19.63°; accuracy/scale pending
+- [ ] **ASTT-042** Set and verify the recorded EL encoder zero. — [TODAY CRITICAL](agents/work/042-elevation-reference/prompt.md); operator-confirmed EL offset +70.37°; independent accuracy/scale checks pending
 - [x] **ASTT-043** Establish the manual AZ encoder reference. — [Done for the manual demo](agents/work/043-azimuth-reference/completion.md); operator confirms 0° at midpoint, 90° right and 275° left. Quantitative accuracy/calibration remains ASTT-046/047/049
 - [ ] **ASTT-044** Read the newly available EL encoder and record limit-switch stop positions. — [IN PROGRESS CRITICAL](agents/work/044-elevation-encoder/prompt.md); upper raw stop 65.93° recorded; lower stop and scale pending
-- [ ] **ASTT-045** Calibrate motor direction, PWM, deadband, and stopping for both axes. — Critical; operator confirms AZ 0.1° pulsed holding; EL tuning next
+- [ ] **ASTT-045** Calibrate motor direction, PWM, deadband, and stopping for both axes. — Critical; operator confirms both axes move/hold with 0.1° tolerance; quantified calibration pending
 - [ ] **ASTT-046** Qualify encoder accuracy and repeatability. — High
 - [ ] **ASTT-047** Qualify magnetometer and heading measurements. — [LATER HIGH](agents/work/047-qualify-magnetometer/prompt.md); automatic referencing deferred
 - [ ] **ASTT-048** Qualify the GPS subsystem. — Medium
@@ -142,46 +144,36 @@ zero and full qualification remain open; automatic north-finding is deferred.
 - [ ] **ASTT-079** Rehearse the demo and prepare a fallback recording or dataset. — High
 - [x] **ASTT-080** Combine hardware and software into one agent-ready repository. — Sanele
 
-## Immediate order — 2026-10-30
+## Immediate order — 2026-11-04
 
-**Milestone: reliable AZ + EL movement using encoder feedback, not automatic
-north-finding or absolute pointing accuracy.** EL reading/UI is accepted and pushed
-as `4da6e3c`; the operator confirms EL movement works in both directions. The
-movement uses the confirmed motor direction. The operator now reports faster EL motion; replacement-motor retesting remains ASTT-096.
+**Both axes now move and hold correctly, confirmed by the operator.** Preserve
+this working controller and sensor sampling. Both tolerances are 0.1°; the
+operator's final EL correction is `EL_ENCODER_OFFSET=-19.63+90` (net +70.37°).
+The faster EL motor is fitted; quantitative loaded/electrical qualification
+remains ASTT-096/050. Automatic north-finding is deferred.
 
-1. Operator confirms AZ still works on restored `master` (`2ca62bc`). Preserve its verified
-   raw limits `137.8° → 360°/0° → 37.8°`, direction, pins and communication.
-2. ASTT-055 basic EL Point movement and direction are accepted. ASTT-044/051:
-   record both physical stop readings and qualify switch/E-stop behavior. Physical
-   switches open motor power per the operator. EL zero is now raw 19.63° with
-   `EL_ENCODER_OFFSET=-19.63`, selected from the previous UI 46.7° reading.
-   UI range is −15° to +92°; raw endpoints and scale still need qualification.
-3. ASTT-042/094: retain recorded references, never use boot position. AZ uses
-   its travel midpoint; EL now uses the operator-selected reference.
-   Use signed angles on either side. AZ midpoint is `267.8°`, giving
-   nominal `−130°…+130°` before stopping margins; old wrapped `275°` is `−85°`.
-   Earlier upper raw 65.93° now displays EL +46.3°, not the requested UI +92°
-   bound. Verify scale/gearing and stops before treating the UI range as travel.
-   No new firmware EL travel bounds are enforced.
-4. ASTT-049/050: qualify stopping, limits, feedback loss
-   and E-stop on each axis separately. Then ASTT-094/059/078: command both axes,
-   stop reliably and return to mechanical `(0°, 0°)`. Update command validation,
-   telemetry and UI consistently for negative mechanical targets when implemented.
+1. **EL travel protection — ASTT-044/051:** record both current raw stop readings,
+   check limit-switch/E-stop behavior, then enforce measured software limits with
+   stopping clearance. Preserve AZ's verified raw arc `137.8° → 360°/0° → 37.8°`.
+   EL UI −15°…+92° is still a requested range, not a measured travel range. With
+   the current offset, zero maps to raw 289.63°; the historical upper raw 65.93°
+   would display 136.3°, so remeasure the current assembly instead of reusing a
+   stale endpoint or inventing a scale.
+2. **Rigid mounting — ASTT-036/037/038/095:** finish/print the rear electronics
+   enclosure, phone holder on the AZ gear and front laser distance-meter mount.
+   Coordinate with teammates and verify cable clearance (ASTT-039).
+3. **Independent pointing tests — ASTT-042/046/049/050/060–068:** manually align
+   north and the elevation reference, then use three-point/triangle measurements.
+   Record requested, encoder-reported and independently measured positions;
+   test both approach directions, repeatability and combined two-axis movement
+   (ASTT-094/059/078). Adjust references only from those results.
+4. **Presentation — ASTT-076/077/079:** prepare the whole-system slides/script,
+   real results and limitations, then rehearse with a fallback recording.
 
-In parallel, ASTT-036 is the rear electronics enclosure, ASTT-037 the phone
-holder on the AZ gear, and ASTT-095 the front laser distance-meter mount.
-After reliable motion and rigid mounting, ASTT-060–068 cover independent
-three-point/triangle checks, paired requested/measured values, repeatability,
-error and any necessary mechanical calibration. Then prepare the whole-system
-presentation and script under ASTT-076/077, with rehearsal/fallback ASTT-079.
-
-The MPU/magnetometer are currently noisy. Preserve their code for later but do
-not let sensor calibration/reference estimation gate the mechanical milestone.
-Curve fitting/automatic references (ASTT-047), automatic recovery, Sun replay,
-login/sharing, cosmetic work and celestial Track qualification are deferred.
-Manual true-north alignment/base levelling can be used later with the brackets;
-these are separate from stored mechanical midpoint zeros. EL midpoint need not
-be horizontal. No absolute-accuracy claim follows from choosing a midpoint.
+The MPU/magnetometer automatic reference, curve fitting, Sun replay, login/
+sharing and cosmetic work remain later tasks. Encoder-based holding is working;
+whole-base/reference recovery remains ASTT-091. Basic movement does not by
+itself establish absolute pointing accuracy or complete travel qualification.
 
 The previous code and untracked work are saved locally in `stash@{0}`,
 `2026-10-30 before encoder-first AZ-EL milestone` (`be08154`). Only backlog/work

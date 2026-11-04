@@ -128,11 +128,11 @@ removed from the UI; serial diagnostics remain verbatim in Show more.
 ### Remote reading diagnostics
 
 The firmware sends `elevation_angle = norm360(el_encoder_angle + EL_ENCODER_OFFSET)`.
-The fixed offset is −19.63°: the operator selected the previous UI 46.7°
-(with +27.07° offset) as zero, corresponding to raw encoder 19.63°.
+The operator-confirmed offset is +70.37° (`-19.63 + 90`): raw encoder 19.63°
+displays 90°, and a zero-degree target maps to raw 289.63°.
 Firmware applies this once; the UI only converts wrapped degrees to signed
 values. The requested UI range is not yet confirmed physical travel: earlier
-upper raw 65.93° now reads 46.3°, so scale/stop validation remains pending.
+historical upper raw 65.93° now reads 136.3°, so scale/stop validation remains pending.
 Raw `el_encoder_angle: number | null` remains available for feedback diagnostics and recording stops. The nullable
 column migration preserves existing records and every reading route includes it.
 For the first reading-only firmware, a valid `elEnc=... EL_ENC=OK` log supplies
@@ -149,9 +149,11 @@ Load graph/date/sampling controls. Magnetic fields remain Tesla in the API.
 
 The API/firmware still accept EL angles from 0 to 360 degrees for encoder tests;
 the manual UI Point form accepts signed EL −15° to +92°. Neither
-is a measured travel range. EL Point uses PWM 128–255 with the existing 30° ramp and stops within 0.01°
-or on target crossing; the firmware stops on
-arrival, lost/stale feedback, E-stop or ten seconds without command communication. Physical switches cut motor power while stops are being measured.
+is a measured travel range. EL Point uses PWM 128–255 with the existing 30°
+ramp and 0.1° tolerance. The current trial adds short near-target corrections,
+settling before reversal and continued encoder-based hold after arrival.
+Lost/stale feedback, E-stop or ten seconds without command communication cancel
+movement. Physical switches cut motor power while stops are being measured.
 EL celestial tracking is disabled for this phase; signed midpoint coordinates
 and software travel protection follow the recorded endpoints. The hold button
 uses the latest referenced elevation and requires valid encoder feedback.
@@ -195,7 +197,9 @@ do not intentionally interrupt motor PWM. Command IDs, E-stop, encoder limits
 and the 10 s communication timeout remain authoritative; stale replies cannot
 resume cancelled commands. AZ uses PWM 150–255 and EL 128–255. AZ holds its
 current Point target with 0.1° tolerance and short corrections near arrival;
-EL still stops on arrival/crossing. Physical accuracy needs supervised testing.
+EL now trials the same correction/settling approach with its existing 0.1°
+tolerance. Both axes are operator-confirmed working; independent accuracy and
+limit/E-stop qualification remain open.
 CAM rounds AZ/EL Point fields to at most two decimal places on initialization,
 leaving the field, and submission. A hold command preserves the exact latest
 reading in its payload; only its displayed input values are rounded. Live and

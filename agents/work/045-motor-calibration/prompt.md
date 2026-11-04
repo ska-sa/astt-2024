@@ -80,3 +80,24 @@ settling before reversal. Add speed/error to existing Serial/API diagnostics.
 Round CAM target inputs to two decimals. No automatic power boost in this trial;
 use the logs for minimum-power tuning. No flash, powered commands, commit or push.
 Operator tests must confirm repeatable stopping before further tolerance changes.
+
+## Authorized EL-only correction and hold — 2026-11-04
+
+After confirming the restored AZ version, the operator requested committing and
+pushing that baseline, then implementing similar logic for EL only. Baseline
+`c6003bd` is on origin/master before this trial begins.
+
+Preserve EL PWM 128–255, linear 30° ramp, 0.01° tolerance, offset −19.63° and
+motor sign −1. Add the AZ-style 1° fine range, nominal 80 ms pulses and 300 ms
+settling, with continued encoder-based target hold. Target crossing pauses before
+correction; it no longer declares a permanently completed Point. Keep invalid/
+stale feedback, E-stop, timeout and duplicate-ID behavior authoritative. Do not
+change AZ, encoder sampling, MPU, UI, networking or inferred travel limits.
+Leave this new trial uncommitted and unflashed for the operator to test.
+
+## Operator acceptance — 2026-11-04
+
+Both axes are reported working. Commit/push the EL correction/hold implementation
+with the operator's +90° reference adjustment (net offset +70.37°) and 0.1° EL
+tolerance. Preserve these values; further tuning is not requested. Remaining
+work is measured limits and independent physical qualification.

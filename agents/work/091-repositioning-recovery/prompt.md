@@ -9,7 +9,7 @@
 The user wants later recovery when an external disturbance changes the antenna's
 position. Encoder movement, movement of the whole base, and coupling slip are
 different cases; the measured reference must remain trustworthy before recovery.
-The 2026-11-04 ASTT-045 trial permits AZ encoder-based holding of an active Point. Whole-base/reference recovery and EL automatic recovery remain deferred.
+The 2026-11-04 ASTT-045 trials permit encoder-based holding of an active Point: both axes are operator-confirmed working. Whole-base/reference recovery remains deferred.
 
 ## Goal
 
@@ -60,8 +60,8 @@ the assembly against powered motors.
 
 ## Scope clarification — 2026-11-04
 
-The operator authorized continued AZ corrections to the same target under
+The operator authorized continued AZ corrections and then the same behavior for EL under
 ASTT-045. This covers encoder-visible drift while the command is still active;
 it cannot observe base movement or coupling slip. E-stop, timeout, feedback loss
-and blocked travel still cancel AZ and need a fresh command. This ticket remains
+and configured blocked travel still cancel affected movement and need a fresh command. This ticket remains
 open for the broader reference/detection work.

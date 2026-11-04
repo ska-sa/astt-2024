@@ -99,3 +99,45 @@ no flashing, commands, commit or push.
 Verification: firmware regressions (including 129,600 safe AZ routes), LOLIN32 compilation, and `git diff --check` pass.
 
 The operator confirms the restored AZ version is satisfactory and authorizes saving it to master before the separate EL hold/settling trial. Quantified two-axis qualification remains open.
+
+## EL correction and hold trial — 2026-11-04
+
+- Committed and pushed the confirmed firmware/UI baseline as `c6003bd` to
+  origin/master before starting this separate EL-only patch.
+- EL retains its 128–255 PWM, 30° linear ramp, 0.01° tolerance, −19.63° zero
+  offset and −1 motor polarity. Added fine range 1°, nominal pulse 80 ms and
+  settling 300 ms beside the EL constants, reusing its existing direction state.
+- Reaching tolerance leaves the Point armed for holding. Persistent departure
+  resumes correction after settling. Crossing the target pauses before reversing
+  and no longer marks an out-of-tolerance position as completed.
+- Invalid/non-finite/stale EL feedback cancels EL and clears its arrival/pulse
+  state. E-stop/timeout still clear commands; repeated IDs are heartbeats and
+  cannot reset correction timing or re-arm a cancelled command.
+- Host checks pass, including 129,600 AZ routes and EL pulse timing, both
+  directions/polarity, wraparound, arrival hold, crossing/reversal pause,
+  repeated IDs, stale/invalid feedback, E-stop and timeout. Byte comparisons
+  confirm AZ functions/settings, both encoder readers, existing EL tuning,
+  reference/source math, main loop and network behavior are unchanged.
+- No UI/backend changes, automatic power boost, sensor refactor, inferred EL
+  stops or celestial EL tracking were added. Sensor waits still determine
+  actual timing; the nominal 80 ms pulse is not a hardware-timed guarantee.
+- Operator test: hold AZ steady, command small reachable EL moves from each
+  direction, inspect the settled error and repeated corrections, then check
+  E-stop/release and communication timeout. Physical EL performance remains
+  unverified. The new EL trial remains uncommitted; no hardware was flashed.
+
+Final EL trial verification: LOLIN32 compile passed (1,032,647 bytes flash, 54,020 bytes RAM), firmware regressions passed, and `git diff --check` passed.
+
+## Operator confirmation and final EL settings — 2026-11-04
+
+The operator confirms both axes now work and authorizes commit/push. Preserve
+their latest firmware edits: EL offset `-19.63 + 90` (net +70.37°) and tolerance
+0.1°. AZ remains at 0.1°; PWM remains AZ 150–255 and EL 128–255. The preceding
+trial's −19.63°/0.01° settings are superseded by these operator adjustments.
+Tests and current documentation now use the confirmed reference and tolerance;
+no sensor, AZ control, UI, networking or further tuning changes were made.
+Basic two-axis movement/holding is accepted. Measured travel protection,
+independent reference/accuracy, loaded stopping and E-stop qualification remain
+open; the operator report does not close those separate acceptance criteria.
+
+Final confirmed-settings verification: host regressions pass (including 129,600 AZ paths, EL offset/wrap conversion, 0.1° tolerance, hold, faults and E-stop); LOLIN32 compile passes (1,032,643 bytes flash, 54,020 bytes RAM). `git diff --check` passes. No hardware was flashed or commanded by the agent.

@@ -65,11 +65,16 @@ unsigned long azSpeedSampleAt = 0;
 // ---------- elevation control ----------
 const float EL_MIN = 0.0;
 const float EL_MAX = 360.0;  // encoder angle domain; physical switches protect test travel
-const float EL_ENCODER_OFFSET = -19.63f;  // operator zero: previous UI 46.70 - previous offset 27.07 = raw 19.63
-const int EL_MIN_PWM = 128;  // match current AZ minimum while testing the faster EL motor
+const float EL_ENCODER_OFFSET = -19.63 + 90;  // operator-confirmed +90 correction; net offset +70.37 degrees
+const int EL_MIN_PWM = 128;  // operator-selected minimum for the faster EL motor
 const int EL_MAX_PWM = 255;
-const float EL_TOLERANCE = 0.01;
+const float EL_TOLERANCE = 0.1;
 const float EL_RAMP_RANGE = 30.0;
+const float EL_FINE_RANGE = 1.0;
+const unsigned long EL_FINE_PULSE_MS = 80;
+const unsigned long EL_SETTLE_MS = 300;
+bool elSettling = false;
+unsigned long elMotionChangedAt = 0;
 const int EL_MOTOR_SIGN = -1;  // positive drive decreases the encoder reading
 
 
@@ -605,6 +610,9 @@ int controlElevation(unsigned long now) {
   }
   if (!elEncoderValid || !isfinite(elEncoderAngle) || now - lastElEncoderRead > 250) {
     elPointActive = false;
+    elPointComplete = false;
+    elPointDirection = 0;
+    elSettling = false;
     stopElevationMotor();
     commandMessage = "EL_ENCODER_UNAVAILABLE_SEND_NEW_COMMAND";
     return 0;
@@ -612,24 +620,41 @@ int controlElevation(unsigned long now) {
   float error = signedAngleDifference(elEncoderAngle, elevationToEncoder(apiElTarget));
   int direction = error > 0 ? 1 : -1;
   int pwm = computeElevationPwm(fabs(error));
-  // A sample can step over a tiny tolerance; stop instead of reversing to chase it.
-  bool crossedTarget = elPointDirection != 0 && direction != elPointDirection;
-  if (pwm == 0 || crossedTarget) {
+  if (pwm == 0) {
     stopElevationMotor();
-    elPointActive = false;
+    // Keep the Point active for hold, just as AZ does; faults/timeout still cancel it.
     elPointComplete = true;
     elPointDirection = 0;
-    commandMessage = pwm == 0 ? "EL_POINT_COMPLETE" : "EL_TARGET_CROSSED";
-    pwm = 0;
-  } else {
-    elPointDirection = direction;
-    driveElevationMotor(pwm, direction * EL_MOTOR_SIGN);
-    movementStatus = "MOVING";
+    elSettling = true;
+    elMotionChangedAt = now;
+    commandMessage = "EL_POINT_COMPLETE";
+    return 0;
   }
+  elPointComplete = false;
+  if (elSettling && now - elMotionChangedAt < EL_SETTLE_MS) {
+    stopElevationMotor();
+    if (movementStatus == "IDLE") movementStatus = "EL SETTLING";
+    return 0;
+  }
+  elSettling = false;
+  bool reversing = elPointDirection != 0 && direction != elPointDirection;
+  bool pulseFinished = elPointDirection != 0 && fabs(error) <= EL_FINE_RANGE
+                       && now - elMotionChangedAt >= EL_FINE_PULSE_MS;
+  if (reversing || pulseFinished) {
+    stopElevationMotor();
+    elPointDirection = 0;
+    elSettling = true;
+    elMotionChangedAt = now;
+    if (reversing) commandMessage = "EL_TARGET_CROSSED";
+    if (movementStatus == "IDLE") movementStatus = "EL SETTLING";
+    return 0;
+  }
+  if (elPointDirection == 0) elMotionChangedAt = now;
+  elPointDirection = direction;
+  driveElevationMotor(pwm, direction * EL_MOTOR_SIGN);
+  movementStatus = "MOVING";
   return pwm;
 }
-
-
 
 
 // ================= gps =================
@@ -987,6 +1012,8 @@ void clearCommandTargets() {
   elPointActive = false;
   elPointComplete = false;
   elPointDirection = 0;
+  elSettling = false;
+  elMotionChangedAt = 0;
   apiAzTarget = -1.0f;
   apiElTarget = -1.0f;
   isTracking = false;
@@ -1074,6 +1101,8 @@ bool startPoint(float azimuth, float elevation) {
   elPointActive = true;
   elPointComplete = false;
   elPointDirection = 0;
+  elSettling = false;
+  elMotionChangedAt = 0;
   isTracking = false;
   lastApiTime = millis();
   commandMessage = "POINT_ACCEPTED";

@@ -70,22 +70,19 @@ The UI now accepts EL **−15° to +92°** and shows that arc on the gauge, with
 signed angles in readings/history. Negative targets still wrap into the existing
 API/firmware 0–360° coordinates. Show more keeps raw `elEnc` for measurements.
 
-### Operator-selected EL zero — 2026-11-03
+### Operator-confirmed EL reference — 2026-11-04
 
-The operator selected the position displayed as **46.7°** with the previous
-+27.07° offset as zero. Its raw encoder value is `46.7 - 27.07 = 19.63°`.
-The new fixed `EL_ENCODER_OFFSET=-19.63` makes that position display 0° and
-maps a 0° command back to raw 19.63°. Upload the updated firmware; the UI must
-not apply another offset. Sensor readers, MPU levelling and motor control are
-unchanged. The zero is recorded in config, not captured at boot.
+The operator added +90° to the previous −19.63° offset and confirms both axes
+now move and hold correctly. `EL_ENCODER_OFFSET=-19.63+90` is net +70.37°.
+Firmware applies this once; the UI only converts wrapped values to signed
+angles. Raw encoder 19.63° now displays 90°, and a 0° target maps to raw 289.63°.
+The reference is recorded in config, not captured at boot.
 
-The requested UI endpoints −15° and +92° map to raw 4.63° and 111.63° with the
-current 1:1 conversion. These are command conversions, not measured stops. The
-earlier upper raw stop 65.93° would now display +46.3°, so it does not also map
-to +92°. Verify scale/gearing and both physical endpoints before treating the
-UI range as confirmed travel. No firmware travel bounds or scale factor are
-added by this offset-only trial. The earlier +27.07° upper-stop assumption and
-midpoint-zero proposal are superseded by the operator's selected zero for now.
+The requested UI endpoints −15° and +92° map to raw 274.63° and 21.63°, across
+360/0, with the existing 1:1 conversion. These are conversions, not measured
+stops. The historical upper raw 65.93° would now display +136.3°; remeasure both
+endpoints and verify scale in the current assembly before adding software travel
+limits. No new limit or scale assumption is introduced by the offset correction.
 
 For the supervised test after your upload:
 
@@ -93,13 +90,16 @@ For the supervised test after your upload:
    its current reading, with clearance and physical E-stop available.
 2. Verify the encoder approaches the target and stops. If it moves away, stop;
    reverse `EL_MOTOR_SIGN` before retrying. Check a small move in each direction.
-3. EL uses minimum PWM 128 and maximum 255, scaling down over the final 30°
-   with the existing ramp, and stopping within 0.01° tolerance
-   or when a sample crosses the target, to avoid repeated reversals. There
-   is no fixed movement duration. Missing/stale feedback, ten seconds without
-   command communication or E-stop still stop it. Repeated polling keeps an
-   active move alive but cannot restart a completed/stopped Point. Record both
-   physical stop readings for the next patch; switches cut motor power at stops.
+3. EL keeps PWM 128–255, the 30° linear ramp and 0.1° tolerance. The current
+   trial adds nominal 80 ms corrections inside 1°, with 300 ms settling between
+   corrections and before reversal. Crossing the target pauses before correcting
+   back; reaching tolerance keeps the Point active for encoder-based hold.
+   The unchanged encoder updates at most every 100 ms; actual pulse/stop timing
+   follows the control loop and can exceed 80 ms while sensors are read.
+4. Check small moves in both directions, settling drift, E-stop and timeout.
+   Missing/stale feedback, ten seconds without command communication or E-stop
+   cancel movement. Old command IDs cannot restart a cancelled Point. Record
+   both physical stop readings; switches still cut motor power at the stops.
 
 EL celestial Track remains stopped until the mechanical reference is established.
 AZ limits, pins, source calculations and asynchronous networking are preserved.
@@ -287,7 +287,10 @@ Their existing ramps remain 60° and 30°. The AZ-only trial keeps 0.1° toleran
 uses short corrections within 1° and waits 300 ms to settle before another
 correction or reversal. Nominal correction time is 80 ms, checked on each control
 loop; existing blocking sensor reads can lengthen it. No extra delay was added
-to sensor reads or HTTP. Loaded performance is still being tested.
+to sensor reads or HTTP. The operator confirmed AZ's behavior; a separate EL
+trial now uses the same 1°/80 ms/300 ms correction pattern, retaining EL's 0.1°
+tolerance and existing PWM range. The operator confirms both axes work;
+independent accuracy and full limit/E-stop qualification remain pending.
 This is commanded duty, not guaranteed speed or torque. Keep tests short with
 E-stop available; higher duty can increase overshoot. EL has no fixed movement
 deadline; arrival and fault stops remain. Automatic stall detection/startup
@@ -324,8 +327,9 @@ An active AZ Point uses its fixed reference and raw encoder feedback. After
 arrival it holds that target: persistent error outside 0.1° resumes correction
 after settling. Repeated polling is only a heartbeat; it does not reset the
 correction timing. E-stop, blocked travel, lost feedback and communication timeout
-cancel movement; recovery requires a new command. EL retains its completion
-latch. Whole-base movement and coupling slip invisible to the encoder cannot be
+cancel movement; recovery requires a new command. The separate EL trial now
+holds its target in the same way, with its existing 0.1° tolerance and fresh
+EL encoder feedback required. Whole-base movement and coupling slip invisible to the encoder cannot be
 corrected by this hold; reference recovery remains deferred under ASTT-091.
 
 The manual reference never refreshes from compass readings or the current boot
