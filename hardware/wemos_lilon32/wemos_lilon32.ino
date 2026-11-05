@@ -39,11 +39,10 @@ const int ESTOP_PIN = 23;
 // ---------- bounded movement assistance ----------
 const unsigned long MOTION_CHECK_MS = 1000;
 const float MOTION_MIN_SPEED_DPS = 0.1;
-const int MOTION_BOOST_STEP = 15;
-const int MOTION_MAX_BOOST = 60;
 const unsigned long MOTION_STALL_MS = 5000;
 struct MotionAssist {
   int direction = 0;
+  bool maximumPower = false;
   int boost = 0;
   float angle = 0;
   unsigned long checkedAt = 0;
@@ -64,11 +63,11 @@ const bool USE_MANUAL_AZ_REFERENCE = true;
 // norm360(137.8 + 260/2) = 267.8, not the arithmetic average of the stops.
 // Manually level and north-align the base at this encoder position before use.
 const float encoderAtNorth = 267.8f;
-const float AZ_TOLERANCE = 0.1;
+const float AZ_TOLERANCE = 0.05;
+const float AZ_LIMIT_TOLERANCE = 0.1;  // Keep inward recovery at the raw stops unchanged.
 const float AZ_RAMP_RANGE = 60.0;
 const int AZ_MIN_PWM = 150;
 const int AZ_MAX_PWM = 255;
-const int AZ_MOTION_MAX_BOOST = 100;
 const unsigned long AZ_MOTION_STALL_MS = 10000;
 const float AZ_FINE_RANGE = 1;  // Short corrections near the target, then let the gear settle.
 const unsigned long AZ_FINE_PULSE_MS = 80;
@@ -86,7 +85,7 @@ const float EL_MAX = 360.0;  // encoder angle domain; physical switches protect 
 const float EL_ENCODER_OFFSET = -19.63 + 90;  // operator-confirmed +90 correction; net offset +70.37 degrees
 const int EL_MIN_PWM = 128;  // operator-selected minimum for the faster EL motor
 const int EL_MAX_PWM = 255;
-const float EL_TOLERANCE = 0.1;
+const float EL_TOLERANCE = 0.05;
 const float EL_RAMP_RANGE = 30.0;
 const float EL_FINE_RANGE = 1.0;
 const unsigned long EL_FINE_PULSE_MS = 80;
@@ -400,8 +399,8 @@ int chooseDirection(float current, float target) {
 
   if (inAzimuthNoGoZone(current)) {
     // Allow small measurement errors at a stop, but only move back into the safe arc.
-    if (cwDistance(current, AZ_ENCODER_MIN) <= AZ_TOLERANCE) return 1;
-    if (cwDistance(AZ_ENCODER_MAX, current) <= AZ_TOLERANCE) return -1;
+    if (cwDistance(current, AZ_ENCODER_MIN) <= AZ_LIMIT_TOLERANCE) return 1;
+    if (cwDistance(AZ_ENCODER_MAX, current) <= AZ_LIMIT_TOLERANCE) return -1;
     return 0;
   }
 
@@ -645,7 +644,7 @@ void driveElevationMotor(int pwm, int direction) {
 // -1 means stop: sustained no progress or clear movement in the wrong direction.
 int assistedPwm(MotionAssist &assist, int pwm, int direction, float angle,
                 float error, float fineRange, int maximum, unsigned long now,
-                int maxBoost, unsigned long stallMs) {
+                unsigned long stallMs) {
   if (error <= fineRange || pwm == 0 || !isfinite(angle)) {
     assist = MotionAssist{};
     return isfinite(angle) ? pwm : 0;
@@ -663,9 +662,10 @@ int assistedPwm(MotionAssist &assist, int pwm, int direction, float angle,
     assist.checkedAt = now;
     if (speed < -MOTION_MIN_SPEED_DPS) return -1;
     if (speed >= MOTION_MIN_SPEED_DPS) assist.progressedAt = now;
-    else assist.boost = min(assist.boost + MOTION_BOOST_STEP, maxBoost);
+    else assist.maximumPower = true;
   }
   if (now - assist.progressedAt >= stallMs) return -1;
+  assist.boost = assist.maximumPower ? max(0, maximum - pwm) : 0;
   return min(pwm + assist.boost, maximum);
 }
 
@@ -746,7 +746,7 @@ int controlElevation(unsigned long now) {
   if (elPointDirection == 0) elMotionChangedAt = now;
   elPointDirection = direction;
   pwm = assistedPwm(elAssist, pwm, direction, elEncoderAngle, fabs(error),
-                    EL_FINE_RANGE, EL_MAX_PWM, now, MOTION_MAX_BOOST, MOTION_STALL_MS);
+                    EL_FINE_RANGE, EL_MAX_PWM, now, MOTION_STALL_MS);
   if (pwm < 0) {
     stopForMotionFault("EL_NO_PROGRESS_OR_WRONG_DIRECTION_SEND_NEW_COMMAND");
     return 0;
@@ -1195,7 +1195,7 @@ int controlAzimuth(float error, int direction, unsigned long now) {
   if (azDriveDirection == 0) azMotionChangedAt = now;
   azDriveDirection = direction;
   int pwm = assistedPwm(azAssist, computeAzimuthPwm(error), direction, azEncoderAngle,
-                        error, AZ_FINE_RANGE, AZ_MAX_PWM, now, AZ_MOTION_MAX_BOOST, AZ_MOTION_STALL_MS);
+                        error, AZ_FINE_RANGE, AZ_MAX_PWM, now, AZ_MOTION_STALL_MS);
   if (pwm < 0) {
     stopForMotionFault("AZ_NO_PROGRESS_OR_WRONG_DIRECTION_SEND_NEW_COMMAND");
     return 0;

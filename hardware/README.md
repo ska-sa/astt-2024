@@ -93,7 +93,7 @@ For the supervised test after your upload:
    its current reading, with clearance and physical E-stop available.
 2. Verify the encoder approaches the target and stops. If it moves away, stop;
    reverse `EL_MOTOR_SIGN` before retrying. Check a small move in each direction.
-3. EL keeps PWM 128–255, the 30° linear ramp and 0.1° tolerance. The current
+3. EL keeps PWM 128–255, the 30° linear ramp and trial 0.05° tolerance. The current
    trial adds nominal 80 ms corrections inside 1°, with 300 ms settling between
    corrections and before reversal. Crossing the target pauses before correcting
    back; reaching tolerance keeps the Point active for encoder-based hold.
@@ -308,16 +308,19 @@ checks remain pending under ASTT-043, ASTT-047, ASTT-051, and ASTT-085.
 
 Current PWM ranges are AZ `150–255` and EL `128–255`. The operator retained
 AZ minimum PWM at 150 on 2026-11-05 while increasing its assistance budget.
-Their existing ramps remain 60° and 30°. Both axes retain the operator-confirmed
-0.1° tolerance and short corrections within 1°, nominally 80 ms with 300 ms
+Their existing ramps remain 60° and 30°. Both axes now trial
+0.05° tolerance and short corrections within 1°, nominally 80 ms with 300 ms
 settling before another correction or reversal. Actual timing follows the control
 loop; I2C reads can still lengthen it. The operator accepts basic buffered-feedback operation on 2026-11-05; measured
 repeatability/overshoot qualification remains pending.
 
 The ASTT-090 trial checks progress once per second during continuous travel,
-outside the 1° fine zone. Progress below 0.1°/s adds 15 PWM, up to 100 extra for
-AZ or 60 for EL, never above the configured axis maximum. Useful assistance is retained while
-moving; stopping, reversal, a new command or entering the fine zone resets it.
+outside the 1° fine zone. Progress below 0.1°/s switches directly to the axis
+maximum PWM (255 on both), for Point and Track. This assistance remains active
+until stopping, reversal, a new command or entering the fine zone resets it.
+AZ stop recovery retains its separate 0.1° allowance. Sampling, polling and
+fine-correction timing are unchanged. The operator accepts this 0.05° version
+for commit; quantified accuracy and loaded/stall qualification remain pending.
 Ten seconds without sufficient AZ progress (five for EL), or clear movement
 in the wrong direction, stops both axes with `MOTION FAULT`; only a new command can retry. No movement
 alone cannot distinguish stiffness from a jam. These are configurable trial values,
@@ -353,11 +356,11 @@ The older calibration experiment remains under `hardware/research/magnetometer-r
 ### What happens after a position is disturbed?
 
 An active AZ Point uses its fixed reference and raw encoder feedback. After
-arrival it holds that target: persistent error outside 0.1° resumes correction
+arrival it holds that target: persistent error outside 0.05° resumes correction
 after settling. Repeated polling is only a heartbeat; it does not reset the
 correction timing. E-stop, blocked travel, lost feedback and communication timeout
 cancel movement; recovery requires a new command. The separate EL trial now
-holds its target in the same way, with its existing 0.1° tolerance and fresh
+holds its target in the same way, with its trial 0.05° tolerance and fresh
 EL encoder feedback required. Whole-base movement and coupling slip invisible to the encoder cannot be
 corrected by this hold; reference recovery remains deferred under ASTT-091.
 

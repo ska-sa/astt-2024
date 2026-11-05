@@ -163,7 +163,7 @@ Load graph/date/sampling controls. Magnetic fields remain Tesla in the API.
 The API/firmware still accept EL angles from 0 to 360 degrees for encoder tests;
 the manual UI Point form accepts signed EL −15° to +92°. Neither
 is a measured travel range. EL Point uses PWM 128–255 with the existing 30°
-ramp and 0.1° tolerance. The current trial adds short near-target corrections,
+ramp and trial 0.05° tolerance. The current trial adds short near-target corrections,
 settling before reversal and continued encoder-based hold after arrival.
 Lost/stale feedback, E-stop or ten seconds without command communication cancel
 movement. Physical switches cut motor power while stops are being measured.
@@ -209,9 +209,9 @@ HTTP now runs in an ESP32 worker with copied snapshots so its 2 s/5 s requests
 do not intentionally interrupt motor PWM. Command IDs, E-stop, encoder limits
 and the 10 s communication timeout remain authoritative; stale replies cannot
 resume cancelled commands. AZ uses PWM 150–255 and EL 128–255. AZ holds its
-current Point target with 0.1° tolerance and short corrections near arrival;
-EL now trials the same correction/settling approach with its existing 0.1°
-tolerance. Both axes are operator-confirmed working; independent accuracy and
+current Point target with trial 0.05° tolerance and short corrections near arrival;
+EL now trials the same correction/settling approach with trial 0.05°
+tolerance. The operator accepts this version; independent accuracy and
 limit/E-stop qualification remain open.
 CAM rounds AZ/EL Point fields to at most two decimal places on initialization,
 leaving the field, and submission. A hold command preserves the exact latest

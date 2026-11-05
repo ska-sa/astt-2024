@@ -7,7 +7,7 @@
 
 Commit/push the operator-accepted Track version first. Then keep encoder readings
 stable with a small rolling sample buffer, reduce motor-loop blocking, log both
-axis speeds, and gradually add bounded power when commanded movement is too slow.
+axis speeds, and apply bounded power assistance when commanded movement is too slow.
 Keep the implementation in the existing sketch and preserve working tuning.
 
 ## Scope
@@ -15,13 +15,13 @@ Keep the implementation in the existing sketch and preserve working tuning.
 - Retain the PWM duty equation and 25 ms pulse timeouts; collect seven samples
   per axis in a background task. Share only the newest filtered snapshot.
 - Reject stale feedback after 250 ms; refill the window after a sampling gap.
-- Preserve pins, offsets, tolerances, fine corrections, raw AZ path,
+- Trial 0.05° arrival/hold tolerance on both axes; retain 0.1° AZ stop recovery.
+- Preserve pins, offsets, fine corrections, raw AZ path,
   E-stop, command timeout, Track math, telemetry units and networking.
 - During continuous travel outside the 1° fine zone, observe progress each second.
-  Trial values: minimum progress 0.1°/s and +15 PWM steps, capped by each axis’s
-  maximum. Per the 2026-11-05 request, AZ minimum PWM is 150, extra assistance
-  is capped at +100 and no-progress timeout is ten seconds. EL retains its
-  existing PWM range, +60 cap and five-second timeout.
+  Latest trial: progress below 0.1°/s jumps directly to axis maximum PWM (255).
+  AZ minimum remains 150, EL minimum 128; no-progress timeout remains ten
+  seconds for AZ and five for EL. Point and Track share the same helper.
 - Stop both axes on sustained lack of progress or clear wrong-direction movement.
   Require a fresh command to retry; repeated polling must not re-arm it.
 - Retain useful boost while moving; reset on stop, reversal, new command or fine

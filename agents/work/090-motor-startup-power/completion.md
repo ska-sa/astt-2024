@@ -65,3 +65,22 @@ The controller regression suite passes, including AZ’s extended window/cap and
 EL’s unchanged five-second stop. Arduino LOLIN32 compilation also passes
 (1,040,079 bytes flash, 54,116 bytes static RAM). No upload or live motor command was performed by the agent. The operator
 confirms the final settings work; loaded/stall qualification still needs measurements.
+
+## Minimal trial after full revert — 2026-11-05
+
+Starting from master ec35903, the operator requests only 0.05° tolerance on both
+axes and direct maximum PWM when stuck. The shared Point/Track assistance helper
+now jumps to 255 after its existing one-second low-progress check (<0.1°/s),
+outside the unchanged 1° fine zone. It retains assistance until the existing
+reset conditions. Obsolete gradual-boost settings are removed. AZ stop recovery
+keeps a separate 0.1° allowance so tighter pointing does not alter limit handling.
+Sampling/filtering, 80 ms pulses, 300 ms settling, polling, minimum PWM, offsets
+and fault/E-stop handling remain as committed. No UI code changes or restored
+experiments. The operator reports this version is better and authorizes commit
+and push on 2026-11-05; full loaded/stall and accuracy qualification remain open.
+
+Verification: firmware regression suite passes, including immediate maximum
+assistance on both axes, resetting assistance, 0.05° arrival, unchanged stop
+recovery, Point/Track, encoder feedback and E-stop/timeouts. LOLIN32 compilation
+passes: 1,040,091 bytes flash and 54,124 bytes static RAM. No flash, live motion
+command, commit or push was performed.

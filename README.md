@@ -149,8 +149,8 @@ checks and full qualification remain open; automatic north-finding is deferred.
 **Both axes now move, hold and track, confirmed by the operator.** The accepted
 Track checkpoint is saved on master at `95e0617`. On 2026-11-05 the operator
 also accepts ASTT-090 buffered feedback and bounded power assistance for basic
-operation; loaded/stall qualification remains pending. Both
-tolerances remain 0.1°; the
+operation; loaded/stall qualification remains pending. The operator also accepts
+0.05° tolerances and direct maximum-PWM assistance for commit on 2026-11-05; the
 operator's final EL correction is `EL_ENCODER_OFFSET=-19.63+90` (net +70.37°).
 The faster EL motor is fitted; quantitative loaded/electrical qualification
 remains ASTT-096/050. Automatic north-finding is deferred.

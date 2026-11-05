@@ -208,7 +208,7 @@ struct FakeMag {
   }
 } myMag;
 '''
-for name in ('AZ_MIN', 'AZ_MAX', 'EL_MIN', 'EL_MAX', 'AZ_ENCODER_MIN', 'AZ_ENCODER_MAX', 'AZ_ENCODER_OFFSET', 'AZ_TOLERANCE', 'AZ_RAMP_RANGE', 'AZ_FINE_RANGE', 'AZ_FINE_PULSE_MS', 'AZ_SETTLE_MS', 'AZ_MIN_PWM', 'AZ_MAX_PWM', 'AZ_MOTION_MAX_BOOST', 'AZ_MOTION_STALL_MS', 'EL_TOLERANCE', 'EL_RAMP_RANGE', 'EL_FINE_RANGE', 'EL_FINE_PULSE_MS', 'EL_SETTLE_MS', 'EL_MIN_PWM', 'EL_MAX_PWM', 'EL_MOTOR_SIGN', 'AZ_ENCODER_PIN', 'EL_ENCODER_PIN', 'ESTOP_PIN', 'SOURCE_TIMEOUT', 'POST_INTERVAL', 'POLL_INTERVAL', 'MAG_MOUNTING_OFFSET_DEG', 'AZ_IN1', 'AZ_IN2', 'AZ_ENA', 'EL_IN1', 'EL_IN2', 'EL_ENA'):
+for name in ('AZ_MIN', 'AZ_MAX', 'EL_MIN', 'EL_MAX', 'AZ_ENCODER_MIN', 'AZ_ENCODER_MAX', 'AZ_ENCODER_OFFSET', 'AZ_TOLERANCE', 'AZ_LIMIT_TOLERANCE', 'AZ_RAMP_RANGE', 'AZ_FINE_RANGE', 'AZ_FINE_PULSE_MS', 'AZ_SETTLE_MS', 'AZ_MIN_PWM', 'AZ_MAX_PWM', 'AZ_MOTION_STALL_MS', 'EL_TOLERANCE', 'EL_RAMP_RANGE', 'EL_FINE_RANGE', 'EL_FINE_PULSE_MS', 'EL_SETTLE_MS', 'EL_MIN_PWM', 'EL_MAX_PWM', 'EL_MOTOR_SIGN', 'AZ_ENCODER_PIN', 'EL_ENCODER_PIN', 'ESTOP_PIN', 'SOURCE_TIMEOUT', 'POST_INTERVAL', 'POLL_INTERVAL', 'MAG_MOUNTING_OFFSET_DEG', 'AZ_IN1', 'AZ_IN2', 'AZ_ENA', 'EL_IN1', 'EL_IN2', 'EL_ENA'):
     program += re.search(r'^const (?:float|int|unsigned long) ' + name + r' = [^;]+;', source, re.M)[0] + '\n'
 # Copied reference settings are mutable so the real functions can be tested in both frames.
 program += re.search(r'^const float EL_ENCODER_OFFSET = [^;]+;', source, re.M)[0].replace('const ', '', 1) + '\n'
@@ -494,7 +494,7 @@ void testAzimuthSettlingAndHold() {
     runAzimuthControl(180 - direction * 0.5f, millis());
     assert(azMotorStopped && azSettling); // no unbounded near-target pulse
     testMilliseconds += AZ_SETTLE_MS;
-    runAzimuthControl(180 - direction * 0.05f, millis());
+    runAzimuthControl(180 - direction * 0.025f, millis());
     assert(azMotorStopped && azPointComplete && azPointActive);
     runAzimuthControl(180 - direction * 0.2f, millis());
     assert(azMotorStopped && !azPointComplete); // wait for persistent out-of-band error
@@ -522,7 +522,7 @@ void testAzimuthSettlingAndHold() {
   assert(startPoint(40.2f, 45)); // encoder 0.2, approached through 359/0 in the safe arc
   runAzimuthControl(359.5f, millis()); assert(azDriveDirection == 1);
   testMilliseconds += 20;
-  runAzimuthControl(0.25f, millis()); assert(azPointComplete && azMotorStopped);
+  runAzimuthControl(0.225f, millis()); assert(azPointComplete && azMotorStopped);
   testMilliseconds += SOURCE_TIMEOUT;
   expireCommand(millis());
   assert(!azPointActive && apiAzTarget < 0 && azMotorStopped);
@@ -605,42 +605,47 @@ void testEncoderBuffer() {
 }
 
 void testMovementAssistance() {
+  MotionAssist moving;
+  assistedPwm(moving, 150, 1, 359, 10, 1, 255, 0, MOTION_STALL_MS);
+  assert(assistedPwm(moving, 150, 1, 359.2f, 10, 1, 255, 1000, MOTION_STALL_MS) == 150);
+  assert(!moving.maximumPower && moving.boost == 0);
   MotionAssist assist;
-  assert(assistedPwm(assist, 150, 1, 359, 10, 1, 255, 0, MOTION_MAX_BOOST, MOTION_STALL_MS) == 150);
-  assert(assistedPwm(assist, 150, 1, 359, 10, 1, 255, 999, MOTION_MAX_BOOST, MOTION_STALL_MS) == 150);
+  assert(assistedPwm(assist, 150, 1, 359, 10, 1, 255, 0, MOTION_STALL_MS) == 150);
+  assert(assistedPwm(assist, 150, 1, 359, 10, 1, 255, 999, MOTION_STALL_MS) == 150);
   for (int second = 1; second <= 4; second++) {
-    assert(assistedPwm(assist, 150, 1, 359, 10, 1, 255, second * 1000, MOTION_MAX_BOOST, MOTION_STALL_MS) == 150 + 15 * second);
+    assert(assistedPwm(assist, 150, 1, 359, 10, 1, 255, second * 1000, MOTION_STALL_MS) == 255);
   }
-  assert(assistedPwm(assist, 230, 1, 359, 10, 1, 255, 4500, MOTION_MAX_BOOST, MOTION_STALL_MS) == 255);
-  assert(assistedPwm(assist, 150, 1, 359, 10, 1, 255, 5000, MOTION_MAX_BOOST, MOTION_STALL_MS) == -1);
+  assert(assistedPwm(assist, 230, 1, 359, 10, 1, 255, 4500, MOTION_STALL_MS) == 255);
+  assert(assist.boost == 25);
+  assert(assistedPwm(assist, 150, 1, 359, 10, 1, 255, 5000, MOTION_STALL_MS) == -1);
   assist = MotionAssist{};
-  assistedPwm(assist, 150, 1, 359, 10, 1, 255, 0, MOTION_MAX_BOOST, MOTION_STALL_MS);
-  assistedPwm(assist, 150, 1, 359, 10, 1, 255, 1000, MOTION_MAX_BOOST, MOTION_STALL_MS);
-  assert(assist.boost == 15);
+  assistedPwm(assist, 150, 1, 359, 10, 1, 255, 0, MOTION_STALL_MS);
+  assistedPwm(assist, 150, 1, 359, 10, 1, 255, 1000, MOTION_STALL_MS);
+  assert(assist.maximumPower && assist.boost == 105);
   for (int second = 2; second <= 12; second++) {
     float angle = norm360(359 + 0.2f * (second - 1));
-    assert(assistedPwm(assist, 150, 1, angle, 10, 1, 255, second * 1000, MOTION_MAX_BOOST, MOTION_STALL_MS) == 165);
+    assert(assistedPwm(assist, 150, 1, angle, 10, 1, 255, second * 1000, MOTION_STALL_MS) == 255);
   }
-  assert(assistedPwm(assist, 150, 1, 1.2f, 0.5f, 1, 255, 13000, MOTION_MAX_BOOST, MOTION_STALL_MS) == 150 && assist.boost == 0);
-  assistedPwm(assist, 150, 1, 1, 10, 1, 255, 14000, MOTION_MAX_BOOST, MOTION_STALL_MS);
-  assert(assistedPwm(assist, 150, 1, 0.5f, 10, 1, 255, 15000, MOTION_MAX_BOOST, MOTION_STALL_MS) == -1);
+  assert(assistedPwm(assist, 150, 1, 1.2f, 0.5f, 1, 255, 13000, MOTION_STALL_MS) == 150 && assist.boost == 0);
+  assistedPwm(assist, 150, 1, 1, 10, 1, 255, 14000, MOTION_STALL_MS);
+  assert(assistedPwm(assist, 150, 1, 0.5f, 10, 1, 255, 15000, MOTION_STALL_MS) == -1);
   assist = MotionAssist{};
-  assistedPwm(assist, 150, 1, 1, 10, 1, 255, 0, MOTION_MAX_BOOST, MOTION_STALL_MS);
-  assistedPwm(assist, 150, 1, 1, 10, 1, 255, 1000, MOTION_MAX_BOOST, MOTION_STALL_MS);
-  assert(assistedPwm(assist, 150, -1, 1, 10, 1, 255, 1500, MOTION_MAX_BOOST, MOTION_STALL_MS) == 150 && assist.boost == 0);
+  assistedPwm(assist, 150, 1, 1, 10, 1, 255, 0, MOTION_STALL_MS);
+  assistedPwm(assist, 150, 1, 1, 10, 1, 255, 1000, MOTION_STALL_MS);
+  assert(assistedPwm(assist, 150, -1, 1, 10, 1, 255, 1500, MOTION_STALL_MS) == 150 && assist.boost == 0);
 
   reset(); capture(170, 210); azEncoderAngle = 170;
   assert(acceptCommandId(1) && startPoint(240, 45));
   int basePwm = runAzimuthControl(170, millis());
   assert(basePwm > 0);
-  // AZ gets a longer window and larger boost; EL below retains five seconds.
+  // Both axes get maximum power; AZ retains ten seconds and EL five before stopping.
   for (int second = 1; second <= 9; second++) {
     testMilliseconds += 1000;
     assert(!acceptCommandId(1)); // Keep communication alive while testing the stall timer.
     int pwm = runAzimuthControl(170, millis());
     assert(!motionFault && !azMotorStopped);
-    assert(azAssist.boost == min(15 * second, 100));
-    assert(pwm == min(basePwm + azAssist.boost, 255));
+    assert(azAssist.maximumPower && azAssist.boost == 255 - basePwm);
+    assert(pwm == 255);
   }
   testMilliseconds += 1000;
   assert(runAzimuthControl(170, millis()) == 0);
@@ -650,12 +655,14 @@ void testMovementAssistance() {
   assert(azAssist.boost == 0 && elAssist.boost == 0);
 
   reset(); capture(170, 210);
-  assert(acceptCommandId(1) && startPoint(220, 45));
+  assert(acceptCommandId(1) && startPoint(220, 20));
   elEncoderAngle = 0;
-  assert(controlElevation(millis()) > 0);
+  int elBasePwm = controlElevation(millis());
+  assert(elBasePwm > 0 && elBasePwm < EL_MAX_PWM);
   for (int second = 1; second <= 5; second++) {
     testMilliseconds += 1000; lastElEncoderRead = millis();
-    controlElevation(millis());
+    int pwm = controlElevation(millis());
+    if (second < 5) assert(pwm == 255 && elAssist.maximumPower);
   }
   assert(motionFault && azMotorStopped && elMotorStopped && !isTracking && !elPointActive);
   NetworkReply reply{}; reply.status = 200; reply.createdAt = millis();
@@ -1229,12 +1236,14 @@ int main() {
   int cases = 0;
   assert(USE_MANUAL_AZ_REFERENCE); // shipped configuration selects the user-confirmed manual reference
   testElevationStopReference();
-  assert(AZ_MIN_PWM == 150 && AZ_MAX_PWM == 255 && AZ_TOLERANCE == 0.1f);
-  assert(EL_MIN_PWM == 128 && EL_MAX_PWM == 255 && EL_TOLERANCE == 0.1f);
-  assert(computeAzimuthPwm(0.09f) == 0 && computeAzimuthPwm(0.1f) == 150 && computeAzimuthPwm(360) == 255);
-  assert(computeElevationPwm(0.099f) == 0 && computeElevationPwm(0.1f) == 128 && computeElevationPwm(360) == 255);
+  assert(AZ_MIN_PWM == 150 && AZ_MAX_PWM == 255 && AZ_TOLERANCE == 0.05f);
+  assert(EL_MIN_PWM == 128 && EL_MAX_PWM == 255 && EL_TOLERANCE == 0.05f);
+  assert(computeAzimuthPwm(0.049f) == 0 && computeAzimuthPwm(0.05f) == 150 && computeAzimuthPwm(360) == 255);
+  assert(computeElevationPwm(0.049f) == 0 && computeElevationPwm(0.05f) == 128 && computeElevationPwm(360) == 255);
   assert(computeElevationPwm(15) == 191 && computeElevationPwm(30) == 255);
   assert(std::fabs(AZ_ENCODER_MIN - 137.8f) < 0.001 && std::fabs(AZ_ENCODER_MAX - 37.8f) < 0.001);
+  assert(chooseDirection(AZ_ENCODER_MIN - 0.075f, 180) == 1);
+  assert(chooseDirection(AZ_ENCODER_MAX + 0.075f, 180) == -1);
   for (int current = 0; current < 360; current++) {
     for (int target = 0; target < 360; target++) {
       int direction = chooseDirection(current, target);
@@ -1242,8 +1251,8 @@ int main() {
       bool currentAllowed = current >= AZ_ENCODER_MIN || current <= AZ_ENCODER_MAX;
       if (!targetAllowed) assert(direction == 0);
       else if (!currentAllowed) {
-        if (AZ_ENCODER_MIN - current <= AZ_TOLERANCE) assert(direction == 1);
-        else if (current - AZ_ENCODER_MAX <= AZ_TOLERANCE) assert(direction == -1);
+        if (AZ_ENCODER_MIN - current <= AZ_LIMIT_TOLERANCE) assert(direction == 1);
+        else if (current - AZ_ENCODER_MAX <= AZ_LIMIT_TOLERANCE) assert(direction == -1);
         else assert(direction == 0);
       } else {
         assert(direction != 0);
