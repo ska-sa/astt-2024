@@ -36,6 +36,23 @@ const int EL_ENCODER_PIN = 35;  // same PWM encoder as AZ
 const int ESTOP_PIN = 23;
 
 
+// ---------- bounded movement assistance ----------
+const unsigned long MOTION_CHECK_MS = 1000;
+const float MOTION_MIN_SPEED_DPS = 0.1;
+const int MOTION_BOOST_STEP = 15;
+const int MOTION_MAX_BOOST = 60;
+const unsigned long MOTION_STALL_MS = 5000;
+struct MotionAssist {
+  int direction = 0;
+  int boost = 0;
+  float angle = 0;
+  unsigned long checkedAt = 0;
+  unsigned long progressedAt = 0;
+};
+MotionAssist azAssist, elAssist;
+bool motionFault = false;
+
+
 // ---------- azimuth control ----------
 const float AZ_MIN = 0.0;
 const float AZ_MAX = 360.0;
@@ -51,6 +68,8 @@ const float AZ_TOLERANCE = 0.1;
 const float AZ_RAMP_RANGE = 60.0;
 const int AZ_MIN_PWM = 150;
 const int AZ_MAX_PWM = 255;
+const int AZ_MOTION_MAX_BOOST = 100;
+const unsigned long AZ_MOTION_STALL_MS = 10000;
 const float AZ_FINE_RANGE = 1;  // Short corrections near the target, then let the gear settle.
 const unsigned long AZ_FINE_PULSE_MS = 80;
 const unsigned long AZ_SETTLE_MS = 300;
@@ -58,8 +77,7 @@ int azDriveDirection = 0;
 bool azSettling = false;
 unsigned long azMotionChangedAt = 0;
 float azSpeedDps = NAN;
-float azSpeedEncoder = NAN;
-unsigned long azSpeedSampleAt = 0;
+float elSpeedDps = NAN;
 
 
 // ---------- elevation control ----------
@@ -79,8 +97,29 @@ const int EL_MOTOR_SIGN = -1;  // positive drive decreases the encoder reading
 
 
 // ---------- encoder ----------
-const int AZ_ENCODER_SAMPLES = 7;        // odd number, we take the median
-const float AZ_ENCODER_SMOOTHING = 0.5;  // 0 is no smoothing, 1 never updates
+const int ENCODER_SAMPLES = 7;
+const float ENCODER_SMOOTHING = 0.5;
+const unsigned long ENCODER_MAX_AGE_MS = 250;
+struct EncoderReading {
+  float angle = NAN;
+  float speedDps = NAN;
+  uint32_t sampledAt = 0;
+  bool valid = false;
+};
+struct EncoderWindow {
+  float angles[ENCODER_SAMPLES] = {};
+  uint8_t count = 0;
+  uint8_t next = 0;
+  float speedAngle = NAN;
+  uint32_t speedAt = 0;
+  EncoderReading reading;
+};
+struct EncoderSnapshot {
+  EncoderReading az;
+  EncoderReading el;
+};
+QueueHandle_t encoderReadings = nullptr;
+EncoderSnapshot latestEncoders;
 float azEncoderAngle = 0.0;
 bool azEncoderReady = false;
 bool azEncoderValid = false;
@@ -375,61 +414,95 @@ int chooseDirection(float current, float target) {
 // ================= encoder =================
 
 
-// read the pwm duty cycle and turn it into an angle.
-// takes the median of several samples so one bad pulse cannot move the value.
-float readAzEncoderAngle() {
-  azEncoderValid = false;
-  float samples[AZ_ENCODER_SAMPLES];
-  int valid = 0;
-
-
-  for (int i = 0; i < AZ_ENCODER_SAMPLES; i++) {
-    unsigned long hi = pulseIn(AZ_ENCODER_PIN, HIGH, 25000);
-    unsigned long lo = pulseIn(AZ_ENCODER_PIN, LOW, 25000);
-    if (hi == 0 || lo == 0) continue;
-    samples[valid] = ((float)hi / (float)(hi + lo)) * 360.0;
-    valid++;
+// Keep the proven HIGH/(HIGH+LOW) measurement; only the worker waits for pulses.
+EncoderReading sampleEncoder(int pin, EncoderWindow &window) {
+  unsigned long hi = pulseIn(pin, HIGH, 25000);
+  unsigned long lo = pulseIn(pin, LOW, 25000);
+  uint32_t now = millis();
+  if (window.count && uint32_t(now - window.reading.sampledAt) > ENCODER_MAX_AGE_MS) {
+    window = EncoderWindow{};
   }
+  if (hi == 0 || lo == 0) return window.reading;
 
+  window.angles[window.next] = (float)hi / (hi + lo) * 360.0f;
+  window.next = (window.next + 1) % ENCODER_SAMPLES;
+  if (window.count < ENCODER_SAMPLES) window.count++;
+  window.reading.sampledAt = now;
+  if (window.count < ENCODER_SAMPLES) return window.reading;
 
-  if (valid == 0) return azEncoderAngle;
-  azEncoderValid = true;
-
-
-  // sort so we can pick the middle value
-  for (int i = 0; i < valid - 1; i++) {
-    for (int j = i + 1; j < valid; j++) {
-      if (samples[j] < samples[i]) {
-        float tmp = samples[i];
-        samples[i] = samples[j];
-        samples[j] = tmp;
-      }
+  // Circular median rejects isolated spikes, including around 359/0 degrees.
+  float median = window.angles[0], bestDistance = INFINITY;
+  for (int i = 0; i < ENCODER_SAMPLES; i++) {
+    float distance = 0;
+    for (int j = 0; j < ENCODER_SAMPLES; j++) {
+      distance += fabs(signedAngleDifference(window.angles[i], window.angles[j]));
+    }
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      median = window.angles[i];
     }
   }
-  float median = samples[valid / 2];
-
-
-  if (!azEncoderReady) {
-    azEncoderAngle = norm360(median);
-    azEncoderReady = true;
-  } else {
-    // Smooth across 359/0 without inventing a position halfway around the circle.
-    float difference = signedAngleDifference(azEncoderAngle, median);
-    azEncoderAngle = norm360(azEncoderAngle + (1.0 - AZ_ENCODER_SMOOTHING) * difference);
+  float angle = window.reading.valid
+    ? norm360(window.reading.angle + (1 - ENCODER_SMOOTHING)
+              * signedAngleDifference(window.reading.angle, median)) : norm360(median);
+  if (!isfinite(window.speedAngle)) {
+    window.speedAngle = angle;
+    window.speedAt = now;
+  } else if (uint32_t(now - window.speedAt) >= 250) {
+    window.reading.speedDps = signedAngleDifference(window.speedAngle, angle)
+                             * 1000.0f / uint32_t(now - window.speedAt);
+    window.speedAngle = angle;
+    window.speedAt = now;
   }
-  return azEncoderAngle;
+  window.reading.angle = angle;
+  window.reading.valid = true;
+  return window.reading;
 }
 
 
-// EL stays in encoder coordinates until the physical stops and midpoint are recorded.
-void readElEncoderAngle() {
-  if (millis() - lastElEncoderRead < 100) return;
-  lastElEncoderRead = millis();
-  // One sample per 100 ms avoids adding a second seven-sample batch to AZ control.
-  unsigned long hi = pulseIn(EL_ENCODER_PIN, HIGH, 25000);
-  unsigned long lo = pulseIn(EL_ENCODER_PIN, LOW, 25000);
-  elEncoderValid = hi > 0 && lo > 0;
-  elEncoderAngle = elEncoderValid ? ((float)hi / (float)(hi + lo)) * 360.0f : NAN;
+void sampleEncoders(EncoderWindow &azWindow, EncoderWindow &elWindow) {
+  EncoderSnapshot snapshot;
+  snapshot.az = sampleEncoder(AZ_ENCODER_PIN, azWindow);
+  snapshot.el = sampleEncoder(EL_ENCODER_PIN, elWindow);
+  xQueueOverwrite(encoderReadings, &snapshot);
+}
+
+
+void encoderWorker(void *) {
+  EncoderWindow azWindow, elWindow;
+  for (;;) {
+    sampleEncoders(azWindow, elWindow);
+    vTaskDelay(1);
+  }
+}
+
+
+bool startEncoderWorker() {
+  encoderReadings = xQueueCreate(1, sizeof(EncoderSnapshot));
+  if (encoderReadings
+      && xTaskCreatePinnedToCore(encoderWorker, "astt-encoders", 4096, nullptr, 1, nullptr, 0) == pdPASS) return true;
+  if (encoderReadings) vQueueDelete(encoderReadings);
+  encoderReadings = nullptr;
+  return false;
+}
+
+
+// The motor loop takes the latest snapshot without waiting; old data cannot become fresh again.
+void readEncoders() {
+  if (encoderReadings) xQueueReceive(encoderReadings, &latestEncoders, 0);
+  uint32_t now = millis();
+  azEncoderValid = latestEncoders.az.valid
+                   && uint32_t(now - latestEncoders.az.sampledAt) <= ENCODER_MAX_AGE_MS;
+  elEncoderValid = latestEncoders.el.valid
+                   && uint32_t(now - latestEncoders.el.sampledAt) <= ENCODER_MAX_AGE_MS;
+  if (azEncoderValid) {
+    azEncoderAngle = latestEncoders.az.angle;
+    azEncoderReady = true;
+  }
+  elEncoderAngle = elEncoderValid ? latestEncoders.el.angle : NAN;
+  lastElEncoderRead = latestEncoders.el.sampledAt;
+  azSpeedDps = azEncoderValid ? latestEncoders.az.speedDps : NAN;
+  elSpeedDps = elEncoderValid ? latestEncoders.el.speedDps : NAN;
 }
 
 
@@ -525,6 +598,7 @@ float computeTrueHeading() {
 
 
 void stopAzimuthMotor() {
+  azAssist = MotionAssist{};
   azMotorStopped = true;
   digitalWrite(AZ_IN1, LOW);
   digitalWrite(AZ_IN2, LOW);
@@ -533,6 +607,7 @@ void stopAzimuthMotor() {
 
 
 void stopElevationMotor() {
+  elAssist = MotionAssist{};
   elMotorStopped = true;
   digitalWrite(EL_IN1, LOW);
   digitalWrite(EL_IN2, LOW);
@@ -566,22 +641,41 @@ void driveElevationMotor(int pwm, int direction) {
 }
 
 
-// Estimate speed from the existing filtered encoder; sampling itself is unchanged.
-void updateAzimuthSpeed(float angle, unsigned long now) {
-  if (!azEncoderValid || !isfinite(angle)) {
-    azSpeedEncoder = azSpeedDps = NAN;
-    return;
+// Assistance applies only to continuous travel, never settling or fine pulses.
+// -1 means stop: sustained no progress or clear movement in the wrong direction.
+int assistedPwm(MotionAssist &assist, int pwm, int direction, float angle,
+                float error, float fineRange, int maximum, unsigned long now,
+                int maxBoost, unsigned long stallMs) {
+  if (error <= fineRange || pwm == 0 || !isfinite(angle)) {
+    assist = MotionAssist{};
+    return isfinite(angle) ? pwm : 0;
   }
-  if (!isfinite(azSpeedEncoder)) {
-    azSpeedEncoder = angle;
-    azSpeedSampleAt = now;
-    return;
+  if (assist.direction != direction) {
+    assist = MotionAssist{};
+    assist.direction = direction;
+    assist.angle = angle;
+    assist.checkedAt = assist.progressedAt = now;
   }
-  unsigned long elapsed = now - azSpeedSampleAt;
-  if (elapsed < 250) return;
-  azSpeedDps = signedAngleDifference(azSpeedEncoder, angle) * 1000.0f / elapsed;
-  azSpeedEncoder = angle;
-  azSpeedSampleAt = now;
+  unsigned long elapsed = now - assist.checkedAt;
+  if (elapsed >= MOTION_CHECK_MS) {
+    float speed = direction * signedAngleDifference(assist.angle, angle) * 1000.0f / elapsed;
+    assist.angle = angle;
+    assist.checkedAt = now;
+    if (speed < -MOTION_MIN_SPEED_DPS) return -1;
+    if (speed >= MOTION_MIN_SPEED_DPS) assist.progressedAt = now;
+    else assist.boost = min(assist.boost + MOTION_BOOST_STEP, maxBoost);
+  }
+  if (now - assist.progressedAt >= stallMs) return -1;
+  return min(pwm + assist.boost, maximum);
+}
+
+
+void stopForMotionFault(const char *reason) {
+  networkGeneration++;
+  clearCommandTargets();
+  motionFault = true;
+  commandMessage = reason;
+  movementStatus = "MOTION FAULT";
 }
 
 
@@ -651,6 +745,12 @@ int controlElevation(unsigned long now) {
   }
   if (elPointDirection == 0) elMotionChangedAt = now;
   elPointDirection = direction;
+  pwm = assistedPwm(elAssist, pwm, direction, elEncoderAngle, fabs(error),
+                    EL_FINE_RANGE, EL_MAX_PWM, now, MOTION_MAX_BOOST, MOTION_STALL_MS);
+  if (pwm < 0) {
+    stopForMotionFault("EL_NO_PROGRESS_OR_WRONG_DIRECTION_SEND_NEW_COMMAND");
+    return 0;
+  }
   driveElevationMotor(pwm, direction * EL_MOTOR_SIGN);
   movementStatus = isTracking ? "TRACKING" : "MOVING";
   return pwm;
@@ -900,7 +1000,7 @@ bool publishAzimuthReference() {
 
 // Health describes actual sample availability, not a claim of calibrated accuracy.
 void updateHealthStatus() {
-  if (estopWasActive || !networkReady || !azEncoderValid
+  if (estopWasActive || motionFault || !networkReady || !azEncoderValid
       || (!USE_MANUAL_AZ_REFERENCE && (!azHeadingValid || !isfinite(declination)))) {
     healthStatus = "FAULT";
   } else if (!mpuOk || !elEncoderValid || !GPS.fix || !azHeadingValid || !isfinite(declination)) {
@@ -911,8 +1011,7 @@ void updateHealthStatus() {
 
 void readSensors() {
   readGPS();
-  azEncoderAngle = readAzEncoderAngle();
-  readElEncoderAngle();
+  readEncoders();
   mpuOk = readMpu();
   if (mpuOk) updateLevelAngles();
   trueHeading = computeTrueHeading();
@@ -927,11 +1026,11 @@ void readSensors() {
 String buildDiagnosticLine(float encoderAngle, float encoderTarget, int direction, int azPwm, int elPwm) {
   char line[1024];
   snprintf(line, sizeof(line),
-           "ms=%lu health=%s state=%s cmd=%d last_event=%s enc=%.2f az=%.2f el=%.2f elEnc=%.2f EL_ENC=%s target=%.2f/%.2f rawTarget=%.2f dir=%d reqPWM=%d/%d azSpeed_dps=%.2f azError=%.3f magnetic=%.2f decl=%.4f true=%.2f offset=%.2f ref=%s ENC=%s MAG=%s heading=%s mag_uT=%.2f/%.2f/%.2f MPU=%s accel_ms2=%.2f/%.2f/%.2f gyro_dps=%.2f/%.2f/%.2f base=%.1f/%.1f GPS=%s lat=%.5f lon=%.5f alt_m=%.1f site=%s http_prev(command/reading/metadata)=%d/%d/%d",
+           "ms=%lu health=%s state=%s cmd=%d last_event=%s enc=%.2f az=%.2f el=%.2f elEnc=%.2f EL_ENC=%s target=%.2f/%.2f rawTarget=%.2f dir=%d reqPWM=%d/%d azSpeed_dps=%.2f elSpeed_dps=%.2f boost=%d/%d azError=%.3f magnetic=%.2f decl=%.4f true=%.2f offset=%.2f ref=%s ENC=%s MAG=%s heading=%s mag_uT=%.2f/%.2f/%.2f MPU=%s accel_ms2=%.2f/%.2f/%.2f gyro_dps=%.2f/%.2f/%.2f base=%.1f/%.1f GPS=%s lat=%.5f lon=%.5f alt_m=%.1f site=%s http_prev(command/reading/metadata)=%d/%d/%d",
            millis(), healthStatus.c_str(), movementStatus.c_str(), lastCommandId, commandMessage.c_str(),
            encoderAngle, azimuthAngle, elevationAngle, elEncoderAngle, elEncoderValid ? "OK" : "ERR",
            apiAzTarget, apiElTarget, encoderTarget,
-           direction, azPwm, elPwm, azSpeedDps,
+           direction, azPwm, elPwm, azSpeedDps, elSpeedDps, azAssist.boost, elAssist.boost,
            apiAzTarget >= 0 ? signedAngleDifference(encoderToTrueAzimuth(encoderAngle), apiAzTarget) : NAN,
            magneticHeading, declination, trueHeading, azEncoderOffset,
            USE_MANUAL_AZ_REFERENCE ? "MANUAL_ALIGNMENT"
@@ -949,7 +1048,6 @@ String buildDiagnosticLine(float encoderAngle, float encoderTarget, int directio
 
 void updateDiagnostics(unsigned long now, float encoderAngle, float encoderTarget,
                        int direction, int azPwm, int elPwm) {
-  updateAzimuthSpeed(encoderAngle, millis());
   updateHealthStatus();
   serialLog = buildDiagnosticLine(encoderAngle, encoderTarget, direction, azPwm, elPwm);
   if (now - lastDiagnosticTime >= 1000) {
@@ -1096,7 +1194,12 @@ int controlAzimuth(float error, int direction, unsigned long now) {
   }
   if (azDriveDirection == 0) azMotionChangedAt = now;
   azDriveDirection = direction;
-  int pwm = computeAzimuthPwm(error);
+  int pwm = assistedPwm(azAssist, computeAzimuthPwm(error), direction, azEncoderAngle,
+                        error, AZ_FINE_RANGE, AZ_MAX_PWM, now, AZ_MOTION_MAX_BOOST, AZ_MOTION_STALL_MS);
+  if (pwm < 0) {
+    stopForMotionFault("AZ_NO_PROGRESS_OR_WRONG_DIRECTION_SEND_NEW_COMMAND");
+    return 0;
+  }
   driveAzimuthMotor(pwm, direction);
   movementStatus = isTracking ? "TRACKING" : "MOVING";
   return pwm;
@@ -1167,6 +1270,7 @@ void applyCommandReply(const NetworkReply &reply) {
     return;
   }
   clearCommandTargets();
+  motionFault = false;
   if (!checkAzimuthFeedback()) return;
 
   if (strcmp(cmdType, "point") == 0) {
@@ -1263,6 +1367,7 @@ void setup() {
   pinMode(ESTOP_PIN, INPUT_PULLUP);
   stopAzimuthMotor();
   stopElevationMotor();
+  if (!startEncoderWorker()) commandMessage = "ENCODER_WORKER_UNAVAILABLE_OUTPUTS_DISABLED";
   // Also initialize telemetry if the encoder is temporarily unavailable at boot.
   if (USE_MANUAL_AZ_REFERENCE) azEncoderOffset = norm360(-encoderAtNorth);
   if (USE_MANUAL_AZ_REFERENCE) {
@@ -1298,7 +1403,7 @@ void setup() {
   if (!networkReady) commandMessage = "NETWORK_WORKER_UNAVAILABLE_OUTPUTS_DISABLED";
 
 
-  azEncoderAngle = readAzEncoderAngle();
+  readEncoders();
   if (USE_MANUAL_AZ_REFERENCE) setAzimuthReference(azEncoderAngle, NAN);
 
 
@@ -1334,7 +1439,7 @@ void loop() {
   }
   estopWasActive = false;
   readSensors();
-  // Sensor reads can wait for a pulse/I2C response. Never drive past a new E-stop.
+  // I2C sensor reads can wait for a response. Recheck E-stop before driving.
   if (digitalRead(ESTOP_PIN) == LOW) {
     latchEmergencyStop();
     return;
@@ -1403,6 +1508,12 @@ void loop() {
 
 
   int elPwm = controlElevation(now);
+  if (motionFault) {
+    stopAzimuthMotor();
+    stopElevationMotor();
+    azPwm = elPwm = 0;
+    movementStatus = "MOTION FAULT";
+  }
   if (referenceReady && azEncoderValid && elEncoderValid && !isTracking
       && azPointComplete && elPointComplete && azPwm == 0 && elPwm == 0
       && azError < AZ_TOLERANCE

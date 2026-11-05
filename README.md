@@ -103,7 +103,7 @@ checks and full qualification remain open; automatic north-finding is deferred.
 - [ ] **ASTT-050** Qualify the EL motion subsystem independently. — CRITICAL; physical connection/calibration under ASTT-055/044 first
 - [ ] **ASTT-051** Qualify the E-stop and motion limits. — Critical
 - [ ] **ASTT-089** Show MPU-based base tilt and Level / Needs levelling / Unknown status. — [Draft](agents/work/089-base-level-indicator/prompt.md)
-- [ ] **ASTT-090** Detect low-power motor hum and test a bounded PWM increase with stall protection. — [Logged](agents/work/090-motor-startup-power/prompt.md); follow-up to ASTT-045
+- [ ] **ASTT-090** Detect low-power motor hum and test a bounded PWM increase with stall protection. — [Basic operation accepted; qualification pending](agents/work/090-motor-startup-power/completion.md); includes buffered AZ/EL feedback, follow-up to ASTT-045/046
 
 ### 7. Full-system Point and Track integration — 7/8 complete
 
@@ -146,8 +146,11 @@ checks and full qualification remain open; automatic north-finding is deferred.
 
 ## Immediate order — 2026-11-04
 
-**Both axes now move and hold correctly, confirmed by the operator.** Preserve
-this working controller and sensor sampling. Both tolerances are 0.1°; the
+**Both axes now move, hold and track, confirmed by the operator.** The accepted
+Track checkpoint is saved on master at `95e0617`. On 2026-11-05 the operator
+also accepts ASTT-090 buffered feedback and bounded power assistance for basic
+operation; loaded/stall qualification remains pending. Both
+tolerances remain 0.1°; the
 operator's final EL correction is `EL_ENCODER_OFFSET=-19.63+90` (net +70.37°).
 The faster EL motor is fitted; quantitative loaded/electrical qualification
 remains ASTT-096/050. Automatic north-finding is deferred.

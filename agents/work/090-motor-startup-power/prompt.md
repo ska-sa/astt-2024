@@ -1,64 +1,49 @@
-# ASTT-090: Detect low-power motor hum and add bounded startup assistance
+# ASTT-090: Buffered encoder feedback and bounded motor assistance
 
-**Status:** Logged — not implemented; confirm measurements and protection first
-**Area:** Hardware
+**Status:** Operator accepts basic operation on 2026-11-05; loaded/stall qualification remains open
+**Area:** Hardware; follows ASTT-045/046
 
-## Context
+## Request
 
-The user reports that a motor can hum without moving at low PWM. A target can
-remain unreached even while power is applied. ASTT-045 covers basic motor/PWM
-calibration; this follow-up would add a limited response to insufficient startup
-power without treating a hard stop, jam, or failed sensor as a request for more power.
+Commit/push the operator-accepted Track version first. Then keep encoder readings
+stable with a small rolling sample buffer, reduce motor-loop blocking, log both
+axis speeds, and gradually add bounded power when commanded movement is too slow.
+Keep the implementation in the existing sketch and preserve working tuning.
 
-## Goal
+## Scope
 
-Detect a valid movement request with no measured progress, then apply an approved,
-bounded startup PWM increase or stop with a clear stall indication.
+- Retain the PWM duty equation and 25 ms pulse timeouts; collect seven samples
+  per axis in a background task. Share only the newest filtered snapshot.
+- Reject stale feedback after 250 ms; refill the window after a sampling gap.
+- Preserve pins, offsets, tolerances, fine corrections, raw AZ path,
+  E-stop, command timeout, Track math, telemetry units and networking.
+- During continuous travel outside the 1° fine zone, observe progress each second.
+  Trial values: minimum progress 0.1°/s and +15 PWM steps, capped by each axis’s
+  maximum. Per the 2026-11-05 request, AZ minimum PWM is 150, extra assistance
+  is capped at +100 and no-progress timeout is ten seconds. EL retains its
+  existing PWM range, +60 cap and five-second timeout.
+- Stop both axes on sustained lack of progress or clear wrong-direction movement.
+  Require a fresh command to retry; repeated polling must not re-arm it.
+- Retain useful boost while moving; reset on stop, reversal, new command or fine
+  correction. Add both signed speeds and extra PWM to the existing diagnostic line.
 
-## In scope
+## Limits and open measurements
 
-- Check target error, commanded PWM, fresh feedback, and measured movement over
-  an agreed time window before declaring no progress.
-- Increase startup/minimum PWM gradually only when assistance is permitted;
-  respect the calibrated maximum and a limited retry/time budget.
-- Keep limits, E-stop, command timeout, and feedback faults authoritative.
-  Stop on suspected obstruction, exhausted assistance, or invalid feedback.
-- Reset assistance when movement starts, a command changes, or motion stops;
-  log the reason and applied PWM for bench checks.
+No encoder progress does not establish whether the cause is low power, a jam or
+a physical limit. Assistance is time/power bounded, not a torque controller.
+Physical EL switches cut power; software EL endpoints still need measurement.
+Do not invent limits, bypass faults, alter reference sensors, or flash/run motion.
+The observation window and boost limits are conservative software trial settings;
+the operator must qualify them with the real load and speed under ASTT-045/050.
 
-## Out of scope
+## Acceptance
 
-- Implementing or changing current PWM values now, bypassing limits, indefinite
-  retries, or assuming that no movement proves insufficient power.
-- Adding current sensing or changing wiring without confirming available hardware.
+- [x] Buffered samples handle spikes/wrapping, startup, expiry and recovery.
+- [x] Motor-loop encoder reads do not wait for pulses; only the worker samples pins.
+- [x] Software checks cover speed, bounded assistance, stopping, fresh-command
+  recovery, timeout/E-stop and existing Point/Track behavior; firmware compiles.
+- [ ] Operator verifies stable feedback and normal/slow movement on both axes.
+- [ ] Loaded power, stopping and no-progress behavior are physically qualified.
 
-## Decisions and questions
-
-- Confirm the affected axis and bench-calibrate safe startup/running/max PWM,
-  step size, movement threshold, observation window, and stall timeout.
-- Confirm how a limit/jam is detected and whether current or driver-fault
-  feedback exists. Encoder silence alone cannot distinguish these from low power.
-- Agree when assistance is safe; unresolved obstruction must stop rather than
-  receive repeated boosts. Confirm recovery and operator reset behavior.
-- EL use depends on valid, calibrated feedback and physical verification under
-  ASTT-044/050/055. No thresholds or extra sensors are assumed.
-
-## Acceptance criteria
-
-- [ ] Low-power startup, normal movement, and on-target cases have distinct outcomes.
-- [ ] Approved assistance starts movement within its bounds or stops within the
-  agreed stall timeout; it cannot exceed the calibrated maximum.
-- [ ] Hard stops, jams, E-stop, expired commands, and missing/stale feedback do not
-  cause unrestricted power increases or automatic repeated retries.
-- [ ] Computer checks pass; operator bench results and ASTT-045 calibration are recorded.
-
-## Likely files
-
-- `hardware/wemos_lilon32/wemos_lilon32.ino`
-- `hardware/tests/`, `hardware/motor-calibration.md`, and `hardware/README.md`
-
-## Verification
-
-Use simulated feedback first to check bounded increases, reset paths, faults,
-and timeouts. Plan an operator-approved bench test after confirming electrical
-and mechanical protection; do not deliberately jam a powered motor.
+The operator now requests committing and pushing the working changes before
+further Track/UI work. The earlier controller/Track checkpoint is `95e0617`.

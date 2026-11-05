@@ -17,6 +17,13 @@ a new, unlisted item is **100**. Current project progress is **45/92 complete**.
 fix, both-axis tracking and a separate 1-minute synthetic pattern are operator-confirmed. Original Sun and working Point control are retained. ASTT-056
 is complete for basic continuous tracking; 088 still covers true solar replay/error recording.
 
+## Current movement work — 2026-11-05
+
+[090 Buffered feedback and bounded power assistance](090-motor-startup-power/completion.md):
+software checks and LOLIN32 compile pass. The operator accepts basic operation
+and requests commit/push on 2026-11-05. ASTT-090 remains open for loaded/stall
+qualification; the earlier Track/controller checkpoint is `95e0617`.
+
 ## Current UI work — 2026-11-02
 
 - **DONE:** [097 Simple/Raw CAM readings](097-cam-reading-views/completion.md).

@@ -53,8 +53,11 @@ telescope IDs, or API hosts match the current assembly.
 ### EL encoder reading and movement test — ASTT-044/055
 
 The operator confirms the same PWM encoder as AZ, connected to GPIO35, and has
-verified its reading in the UI. The reader uses `HIGH / (HIGH + LOW) * 360`, at
-most once per 100 ms. Each pulse wait is bounded to 25 ms. Missing pulses report
+verified its reading in the UI. The ASTT-090 trial keeps `HIGH / (HIGH + LOW) * 360`
+and each 25 ms pulse timeout, but collects AZ/EL in a background task. Each axis
+uses a rolling seven-sample circular median and 0.5 smoothing. The motor loop reads
+the latest snapshot without waiting; samples older than 250 ms are invalid, and
+startup/recovery requires seven fresh samples. Stale EL feedback reports
 `elEnc=nan EL_ENC=ERR` and `el_encoder_angle: null`; the UI shows Not available
 or a graph gap. Valid values appear as **Elevation Angle** everywhere.
 
@@ -94,8 +97,9 @@ For the supervised test after your upload:
    trial adds nominal 80 ms corrections inside 1°, with 300 ms settling between
    corrections and before reversal. Crossing the target pauses before correcting
    back; reaching tolerance keeps the Point active for encoder-based hold.
-   The unchanged encoder updates at most every 100 ms; actual pulse/stop timing
-   follows the control loop and can exceed 80 ms while sensors are read.
+   Encoder pulse waits now run in a background task. Filtering adds feedback lag;
+   actual pulse/stop timing still follows the control loop, including I2C reads,
+   and requires bench measurement.
 4. Check small moves in both directions, settling drift, E-stop and timeout.
    Missing/stale feedback, ten seconds without command communication or E-stop
    cancel movement. Old command IDs cannot restart a cancelled Point. Record
@@ -302,19 +306,23 @@ Raw magnetic telemetry remains Tesla; CAM displays it in `µT`.
 Independent alignment accuracy, magnetic calibration and repeatable stopping
 checks remain pending under ASTT-043, ASTT-047, ASTT-051, and ASTT-085.
 
-Current operator-selected PWM ranges are AZ `150–255` and EL `128–255`.
-Their existing ramps remain 60° and 30°. The AZ-only trial keeps 0.1° tolerance,
-uses short corrections within 1° and waits 300 ms to settle before another
-correction or reversal. Nominal correction time is 80 ms, checked on each control
-loop; existing blocking sensor reads can lengthen it. No extra delay was added
-to sensor reads or HTTP. The operator confirmed AZ's behavior; a separate EL
-trial now uses the same 1°/80 ms/300 ms correction pattern, retaining EL's 0.1°
-tolerance and existing PWM range. The operator confirms both axes work;
-independent accuracy and full limit/E-stop qualification remain pending.
-This is commanded duty, not guaranteed speed or torque. Keep tests short with
-E-stop available; higher duty can increase overshoot. EL has no fixed movement
-deadline; arrival and fault stops remain. Automatic stall detection/startup
-boosts remain ASTT-090 work.
+Current PWM ranges are AZ `150–255` and EL `128–255`. The operator retained
+AZ minimum PWM at 150 on 2026-11-05 while increasing its assistance budget.
+Their existing ramps remain 60° and 30°. Both axes retain the operator-confirmed
+0.1° tolerance and short corrections within 1°, nominally 80 ms with 300 ms
+settling before another correction or reversal. Actual timing follows the control
+loop; I2C reads can still lengthen it. The operator accepts basic buffered-feedback operation on 2026-11-05; measured
+repeatability/overshoot qualification remains pending.
+
+The ASTT-090 trial checks progress once per second during continuous travel,
+outside the 1° fine zone. Progress below 0.1°/s adds 15 PWM, up to 100 extra for
+AZ or 60 for EL, never above the configured axis maximum. Useful assistance is retained while
+moving; stopping, reversal, a new command or entering the fine zone resets it.
+Ten seconds without sufficient AZ progress (five for EL), or clear movement
+in the wrong direction, stops both axes with `MOTION FAULT`; only a new command can retry. No movement
+alone cannot distinguish stiffness from a jam. These are configurable trial values,
+not calibrated torque/current limits. Physical EL switches cut motor power;
+measured firmware EL travel endpoints remain pending.
 
 ### Remote diagnostic line
 
@@ -322,16 +330,17 @@ The firmware builds one bounded diagnostic snapshot (a `1024`-byte buffer),
 prints it roughly once per second, and attaches it as `serial_log` to each
 five-second reading POST. It includes status, requested PWM, measured/target
 angles, sensor availability/values, site source, command events, and previous
-HTTP results. `azSpeed_dps` is the signed speed estimated over at least 250 ms
-from the existing filtered encoder; `azError` is the shortest signed angular
-error, while the motor still follows the permitted raw travel path. Speed is
-diagnostic only, unavailable until two valid samples exist. `reqPWM` is a request,
-not measured current. Log speed, error and requested PWM when tuning minimum power.
+HTTP results. `azSpeed_dps` and `elSpeed_dps` are signed encoder speeds estimated
+over at least 250 ms; `boost=AZ/EL` reports the current extra PWM. Speeds are
+unavailable until a valid measurement interval exists. `azError` is the shortest
+signed angular error, while the motor still follows the permitted raw travel path.
+Assistance measures progress over its separate one-second window. `reqPWM` is a
+request, not measured current. Log speed, error and requested PWM when tuning power.
 `last_event` records the previous command outcome, not current readiness.
 Genuine encoder, compass or unsupported/unsynchronised-date failures name their cause.
 
-Manual-mode health reports **FAULT** for E-stop, network-worker failure or invalid
-AZ encoder; **DEGRADED** for missing compass/date, MPU, EL encoder or GPS fix; otherwise **OK**.
+Manual-mode health reports **FAULT** for E-stop, a latched motion fault,
+network-worker failure or invalid AZ encoder; **DEGRADED** for missing compass/date, MPU, EL encoder or GPS fix; otherwise **OK**.
 The optional compass-estimate mode retains its blocking magnetic/date checks.
 Neither OK nor DEGRADED proves calibrated heading accuracy. While E-stop is held,
 motor outputs stay off and telemetry/logs continue; command polling pauses.
@@ -409,9 +418,10 @@ axes, motor direction, useful PWM, deadband, stopping, motion limits, and E-stop
 Physical measurements are required before these tickets can be marked complete.
 Follow `hardware/motor-calibration.md` after the E-stop checks pass.
 
-ASTT-090 is logged for low-PWM motor hum/no progress and bounded startup
-assistance with stall protection. It is not implemented; current PWM values
-remain unchanged until safe thresholds and obstruction handling are confirmed.
+ASTT-090 buffered encoder feedback and bounded power assistance are accepted by
+the operator for basic operation on 2026-11-05. Host checks and LOLIN32 compile
+pass; loaded motor/feedback qualification remains open. See `agents/work/090-motor-startup-power/completion.md`
+for the supervised test checklist. The accepted pre-trial version is `95e0617`.
 
 ### Newly requested elevation and levelling work
 
