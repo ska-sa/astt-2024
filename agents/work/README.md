@@ -9,13 +9,22 @@ agents/work/NNN-short-title/
 ```
 
 Use the existing `ASTT-NNN` number from the root checklist. The next number for
-a new, unlisted item is **100**. Current project progress is **45/92 complete**.
+a new, unlisted item is **101**. Current project progress is **45/93 complete**.
 
 ## Current Track work — 2026-11-04
 
 [056 Track repair/test](056-continuous-tracking/completion.md): backend repeated-source
 fix, both-axis tracking and a separate 1-minute synthetic pattern are operator-confirmed. Original Sun and working Point control are retained. ASTT-056
 is complete for basic continuous tracking; 088 still covers true solar replay/error recording.
+
+## Next control task — 2026-11-05
+
+[100 Bounded reverse-and-retry recovery](100-stall-reverse-retry/prompt.md):
+log the operator's request to reverse a short distance when stuck, retry through
+the sticking position at maximum PWM, then resume the original Point or Track.
+The accepted 0.05°/direct-max firmware is pushed as `c1559c7`. Recovery is planned
+only; its distances, measured travel margins and bounded retry timing still need
+supervised qualification. This is separate from whole-base recovery (091).
 
 ## Current movement work — 2026-11-05
 

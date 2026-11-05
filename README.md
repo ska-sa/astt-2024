@@ -18,7 +18,7 @@ Read [AGENTS.md](AGENTS.md) before starting work. Software details are in
 
 ## Progress
 
-**45 of 92 work items complete.** The checklist is the project source of truth.
+**45 of 93 work items complete.** The checklist is the project source of truth.
 Only mark an item complete after its acceptance criteria have been verified.
 ASTT-055 basic encoder-feedback EL Point movement is complete: the operator
 confirms it works in both directions on 2026-10-30. On 2026-11-04 the operator
@@ -65,7 +65,7 @@ checks and full qualification remain open; automatic north-finding is deferred.
 - [x] **ASTT-020** Complete the manual Veroboard design. — Failed; archived for reference
 - [x] **ASTT-082** Build and verify the controller on a small breadboard. — Sanele
 
-### 3. Motion control — 4/8 complete
+### 3. Motion control — 4/9 complete
 
 - [x] **ASTT-021** Assemble the AZ mechanical parts and motor bracket.
 - [x] **ASTT-022** Complete the AZ motor-driver and control wiring.
@@ -75,6 +75,8 @@ checks and full qualification remain open; automatic north-finding is deferred.
 - [ ] **ASTT-094** Use signed midpoint-zero coordinates and reliable encoder-based two-axis Point control. — [TODAY CRITICAL](agents/work/094-encoder-mechanical-coordinates/prompt.md)
 - [ ] **ASTT-093** Remove network-induced AZ pauses, raise minimum PWM, and show live measured AZ/device status. — [Software verified; supervised motion pending](agents/work/093-continuous-az-motion/completion.md)
 - [ ] **ASTT-091** Add automatic recovery after external repositioning. — [LATER HIGH; deferred](agents/work/091-repositioning-recovery/prompt.md); whole-base/reference recovery deferred; AZ/EL encoder holding confirmed under ASTT-045
+
+- [ ] **ASTT-100** Recover from sticking with a bounded reverse-and-retry movement, then resume Point/Track. — [TODO HIGH](agents/work/100-stall-reverse-retry/prompt.md); measured travel margins and supervised qualification required
 
 ### 5. Mechanical integration and enclosure — 2/9 complete
 
@@ -144,7 +146,7 @@ checks and full qualification remain open; automatic north-finding is deferred.
 - [ ] **ASTT-079** Rehearse the demo and prepare a fallback recording or dataset. — High
 - [x] **ASTT-080** Combine hardware and software into one agent-ready repository. — Sanele
 
-## Immediate order — 2026-11-04
+## Immediate order — 2026-11-05
 
 **Both axes now move, hold and track, confirmed by the operator.** The accepted
 Track checkpoint is saved on master at `95e0617`. On 2026-11-05 the operator
@@ -154,6 +156,11 @@ operation; loaded/stall qualification remains pending. The operator also accepts
 operator's final EL correction is `EL_ENCODER_OFFSET=-19.63+90` (net +70.37°).
 The faster EL motor is fitted; quantitative loaded/electrical qualification
 remains ASTT-096/050. Automatic north-finding is deferred.
+
+**Next control task — ASTT-100:** plan a bounded reverse-and-retry recovery for
+a sticking axis, then resume its original Point/Track command. The accepted
+firmware checkpoint is `c1559c7`; recovery is not implemented. Confirm measured
+limits and clearance before enabling automatic recovery on either axis.
 
 1. **EL travel protection — ASTT-044/051:** record both current raw stop readings,
    check limit-switch/E-stop behavior, then enforce measured software limits with
