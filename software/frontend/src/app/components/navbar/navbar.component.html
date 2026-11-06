@@ -25,10 +25,10 @@
     </ul>
     <div class="d-flex align-items-center">
       <span class="navbar-text small">{{ currentUser()?.email_address }}</span>
-      <a class="nav-link text-danger" (click)="signOut()">
+      <button type="button" class="btn btn-danger btn-sm text-white fw-bold ms-3" aria-label="Sign Out" (click)="signOut()">
         <i class="fa-solid fa-arrow-right-from-bracket fa-fw"></i>
         <span class="ms-2 d-none d-lg-inline">Sign Out</span>
-      </a>
+      </button>
     </div>
   </div>
 </nav>

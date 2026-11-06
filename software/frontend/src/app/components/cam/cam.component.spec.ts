@@ -98,7 +98,7 @@ describe('CamComponent', () => {
       spyOn(component, 'loadGraph');
     });
 
-    it('defaults to two gauges and GPS, with all details available through Raw without submitting a command', () => {
+    it('defaults to two gauges and location, with all details available through Raw without submitting a command', () => {
       const reading = sensorReading({ azimuth_angle: 30, elevation_angle: 42.5, serial_log: 'latest diagnostic' });
       component.reading = reading;
       fixture.detectChanges();
@@ -116,7 +116,7 @@ describe('CamComponent', () => {
 
       buttons[1].click(); fixture.detectChanges();
       expect(panel.querySelectorAll('svg').length).toBe(0);
-      for (const label of ['Health', 'GPS', 'Accelerometer', 'Magnetometer', 'Position', 'Gyroscope']) {
+      for (const label of ['Health', 'Location', 'Accelerometer', 'Magnetometer', 'Position', 'Gyroscope']) {
         expect(panel.textContent).toContain(label);
       }
       expect(panel.querySelector('pre')?.textContent).toBe('latest diagnostic');
@@ -127,6 +127,27 @@ describe('CamComponent', () => {
       expect(component.azimuth_angle).toBe(targetAz);
       expect(component.elevation_angle).toBe(targetEl);
       expect(component.isPointing).toBeTrue();
+      expect(commandService.postCommand).not.toHaveBeenCalled();
+    });
+
+    it('displays API coordinates under a simple Location heading in both views', () => {
+      for (const readingsView of ['simple', 'raw'] as const) {
+        component.readingsView = readingsView;
+        for (const serial_log of [
+          'GPS=NO_FIX site=DEFAULT',
+          'GPS=FIX site=GPS',
+          'GPS=NO_FIX site=LAST_FIX'
+        ]) {
+          component.reading = sensorReading({ latitude: -33.94512, longitude: 18.47923, altitude: 23.4, serial_log });
+          fixture.detectChanges();
+          const panel: HTMLElement = fixture.nativeElement.querySelector('.sensor-readings');
+          expect(panel.textContent).toContain('Location');
+          expect(panel.textContent).not.toContain('Location (default)');
+          expect(panel.textContent).toContain('-33.94512');
+          expect(panel.textContent).toContain('18.47923');
+          expect(panel.textContent).toContain('23.4 m');
+        }
+      }
       expect(commandService.postCommand).not.toHaveBeenCalled();
     });
 

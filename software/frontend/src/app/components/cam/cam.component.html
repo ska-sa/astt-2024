@@ -76,7 +76,7 @@
               </figure>
             </div>
             <div class="gps-location border-top pt-3 mt-2 small d-flex flex-wrap justify-content-center gap-3">
-              <strong>GPS</strong>
+              <strong>Location</strong>
               <span>Latitude: {{ reading ? (reading.latitude | number:'1.5-5') : '—' }}°</span>
               <span>Longitude: {{ reading ? (reading.longitude | number:'1.5-5') : '—' }}°</span>
               <span>Altitude: {{ reading ? (reading.altitude | number:'1.0-1') : '—' }} m</span>
@@ -85,7 +85,7 @@
           <ng-container *ngIf="readingsView === 'raw'">
             <div class="row gy-3">
               <div class="col-12 col-sm-6">
-                <strong>GPS</strong>
+                <strong>Location</strong>
                 <div class="ps-2">
                   Latitude: {{ reading?.latitude }}<br>
                   Longitude: {{ reading?.longitude }}<br>
